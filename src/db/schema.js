@@ -22,36 +22,15 @@ export const users = pgTable("users", {
   location: varchar("location"),
   experience: integer("experience"), 
   bio: text("bio"),
+  role: varchar("role"),
   createdAt: timestamp("created_at").defaultNow(),
   tier: tierEnum("tier").default("free"),
   resetToken: varchar("reset_token", { length: 255 }),
   resetTokenExpiry: bigint("reset_token_expiry", { mode: "number" }),
 });
-export const accounts = pgTable("accounts", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  userId: uuid("user_id").references(() => users.id),
-  provider: text("provider").notNull(),
-  providerAccountId: text("provider_account_id").notNull(),
-  type: text("type"),
-  access_token: text("access_token"),
-  id_token: text("id_token"),
-});
-export const graph_skills = pgTable("graph_skills", {
-  userId: uuid("user_id")
-    .references(() => users.id)
-    .notNull(),
-  relatedSkills: varchar("related_skills").array(), // array of related skills
-});
-export const roles = pgTable("roles", {
-  id: uuid("id").primaryKey().defaultRandom(),
-  role: varchar("role", { length: 455 }),
-  matchedSkills: varchar("matched_skills").array(),
-  requiredSkills: varchar("required_skills").array(),
-  userId: uuid("user_id")
-    .references(() => users.id)
-    .notNull(),
-  Hotskills: varchar("skills").array(),
-});
+
+
+
 export const aiUsageLogs = pgTable("ai_usage_logs", {
   id: uuid("id").primaryKey().defaultRandom(),
 

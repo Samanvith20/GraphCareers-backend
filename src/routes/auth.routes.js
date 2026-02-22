@@ -3,13 +3,16 @@ import {
   login,
   signup,
   forgotPassword,
+  me,
 } from "../controllers/auth.controller.js";
+
 import { validate } from "../middleware/validate.js";
 import {
   loginSchema,
   signupSchema,
   forgotPasswordSchema,
 } from "../schemas/auth.schema.js";
+import { authMiddleware } from "../middleware/auth.js";
 
 const router = Router();
 
@@ -21,5 +24,7 @@ router.post("/signup", validate(signupSchema), signup);
 
 // POST /api/auth/forgot-password
 router.post("/forgot-password", validate(forgotPasswordSchema), forgotPassword);
+
+router.get("/me",authMiddleware, me);
 
 export default router;

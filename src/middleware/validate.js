@@ -1,10 +1,21 @@
+import { ZodError } from "zod";
+
 export function validate(schema) {
   return (req, res, next) => {
     try {
-      schema.parse(req.body);
+      console.log("Validating request body:", req.body);
+
+      // IMPORTANT: overwrite req.body with parsed result
+      req.body = schema.parse(req.body);
+
       next();
     } catch (err) {
-      return res.status(400).json({ error: err.errors || "Invalid request" });
+      if (err instanceof ZodError) {
+        return res.status(400).json({
+          error: err.flatten(),
+        });
+      }
+      return res.status(400).json({ error: "Invalid request" });
     }
   };
 }

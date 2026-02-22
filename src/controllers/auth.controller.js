@@ -2,6 +2,7 @@ import {
   loginService,
   signupService,
   forgotPasswordService,
+  profileService,
 } from "../services/auth.service.js";
 import jwt from "jsonwebtoken";
 
@@ -65,6 +66,18 @@ export async function forgotPassword(req, res) {
     return res.json({ message: "Password reset email sent" });
   } catch (err) {
     console.error("FORGOT PASSWORD ERROR 👉", err);
+    return res.status(500).json({ error: "Internal server error" });
+  }
+}
+export async function me(req, res) {
+  try {
+    const result = await profileService(req.userId);
+    if (!result.success) {
+      return res.status(401).json({ error: result.error });
+    }
+    return res.json({ user: result.user });
+  } catch (err) {
+    console.error("ME CONTROLLER ERROR 👉", err);
     return res.status(500).json({ error: "Internal server error" });
   }
 }

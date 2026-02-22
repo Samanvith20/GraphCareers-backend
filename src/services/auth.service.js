@@ -106,3 +106,21 @@ export async function forgotPasswordService(email) {
 
   return { success: true };
 }
+
+export async function profileService(id){
+   const user = await db
+    .select({
+      id: users.id,
+      name: users.name,
+      email: users.email,
+    })
+    .from(users)
+    .where(eq(users.id, id))
+    .limit(1);
+
+  if (!user.length) {
+    return { success: false, error: "User not found" };
+  }
+
+  return { success: true, user: user[0] };
+}
