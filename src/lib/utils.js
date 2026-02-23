@@ -1,4 +1,4 @@
-const normalizeSkills = (skills) =>
+export const normalizeSkills = (skills) =>
   Array.from(
     new Set(
       skills

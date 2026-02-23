@@ -6,6 +6,7 @@ import { extractText } from "unpdf";
 import { generateObject } from "ai";
 import { openrouter } from "../lib/openai.js";
 import { ResumeSchema } from "../schemas/user.schema.js";
+import { normalizeSkills } from "../lib/utils.js";
 
 const MAX_SIZE = 500 * 1024;
 
@@ -39,11 +40,45 @@ export async function getUserProfileService(userId) {
       error: "User not found",
     };
   }
+    const resume = await db.query.resumes.findFirst({
+    where: eq(resumes.userId, userId),
+    columns: {
+      fileName: true,
+      uploadedAt: true,
+      isResumeParsed: true,
+    },
+  });
 
+  // 3️⃣ Count job applications
+  const applicationsCountResult = await db
+    .select({
+      count: sql`count(*)`,
+    })
+    .from(userJobApplications)
+    .where(eq(userJobApplications.userId, userId));
+
+  const applicationsCount = Number(applicationsCountResult[0]?.count ?? 0);
+
+  // 4️⃣ Final response
   return {
     success: true,
     profile: result[0],
+        resume: resume
+      ? {
+          uploaded: true,
+          parsed: resume.isResumeParsed,
+          fileName: resume.fileName,
+          uploadedAt: resume.uploadedAt,
+        }
+      : {
+          uploaded: false,
+          parsed: false,
+        },
+
+    applicationsCount,
   };
+
+  
 }
 
 export async function getUserJobApplicationsService(userId) {
@@ -232,6 +267,7 @@ ${resume.text}
   };
 
   await db.update(users).set(cleanedData).where(eq(users.id, userId));
+  await db.update(resumes).set({ isResumeParsed: true, }).where(eq(resumes.userId, userId));
 
   await db.insert(aiUsageLogs).values({
     userId,

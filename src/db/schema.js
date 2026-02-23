@@ -1,3 +1,4 @@
+import { boolean } from "drizzle-orm/gel-core";
 import {
   pgTable,
   text,
@@ -59,6 +60,7 @@ export const resumes = pgTable("resumes", {
   fileType: varchar("file_type"),
   text: text("text"),
   uploadedAt: timestamp("uploaded_at").defaultNow(),
+  isResumeParsed: boolean("is_resume_parsed").default(false),
 });
 
 // Job table to store job details fetched from external sources need to update on every fetch
