@@ -102,18 +102,19 @@ export async function getUserJobApplicationsService(userId) {
 }
 
 export async function updateUserProfileService(userId, data) {
-  let updateData = { ...data };
+  const updateData = { ...data };
 
-  if (data.skills) {
-    // fetch existing skills
-    const [user] = await db
-      .select({ skills: users.skills })
-      .from(users)
-      .where(eq(users.id, userId));
+  // ✅ Only validate if skills is present
+  if ("skills" in data) {
+    if (!Array.isArray(data.skills)) {
+      throw {
+        status: 400,
+        message: "Invalid skills format..",
+      };
+    }
 
-    const existingSkills = user?.skills ?? [];
-
-    updateData.skills = normalizeSkills([...existingSkills, ...data.skills]);
+    // ✅ REPLACE + dedupe
+ updateData.skills = normalizeSkills(data.skills);
   }
 
   const result = await db
@@ -124,9 +125,6 @@ export async function updateUserProfileService(userId, data) {
 
   return result[0];
 }
-
-
-
 // ================== RESUME UPLOAD ==================
 export async function uploadResumeService(userId, file) {
   if (!file) {
@@ -149,7 +147,16 @@ export async function uploadResumeService(userId, file) {
 
   if (isPDF) {
     const result = await extractText(new Uint8Array(file.buffer));
-    text = (result?.text || "").trim();
+    console.log("pdfresult::",result?.text)
+    if (typeof result?.text === "string") {
+  text = result.text;
+} else if (Array.isArray(result?.text)) {
+  text = result.text.join(" ");
+} else {
+  text = "";
+}
+
+text = text.trim();
   }
 
   if (isDOCX) {
@@ -174,7 +181,7 @@ export async function uploadResumeService(userId, file) {
     await db
       .update(resumes)
       .set({
-        fileName,
+         pendingFileName: fileName,
         fileType: isPDF ? "pdf" : "docx",
         text,
         uploadedAt: new Date(),
@@ -183,7 +190,7 @@ export async function uploadResumeService(userId, file) {
   } else {
     await db.insert(resumes).values({
       userId,
-      fileName,
+       pendingFileName: fileName,
       fileType: isPDF ? "pdf" : "docx",
       text,
       uploadedAt: new Date(),
@@ -223,7 +230,7 @@ export async function parseResumeWithAIService(userId) {
   if (usage[0].total >= TIER_LIMITS[user.tier]) {
     throw {
       status: 429,
-      message: "Daily AI limit reached for your plan",
+      message: "Daily  limit reached for your plan ",
     };
   }
 
@@ -244,6 +251,8 @@ Follow this strictly:
    - "1.4 years" → 17 months
    - "1 year 6 months" → 18 months
    - "6 months" → 6
+   - if user has ended do not count with present month 
+   ex:jan2025-jan2026 ->12 months (do not give 13 months because present month is feb)
 3. Sum ALL job durations.
 4. If fresher, return 0.
 
@@ -260,14 +269,19 @@ ${resume.text}
 
   const cleanedData = {
     name: object.name,
-    skills: [...new Set(object.skills.map((s) => s.toLowerCase().trim()))],
+    skills: normalizeSkills(object.skills),
     location: object.location,
     experience: object.experience,
     bio: object.bio,
   };
 
   await db.update(users).set(cleanedData).where(eq(users.id, userId));
-  await db.update(resumes).set({ isResumeParsed: true, }).where(eq(resumes.userId, userId));
+  await db.update(resumes).set({
+  fileName: resume.pendingFileName, // 👈 activate
+  pendingFileName: null,
+  isResumeParsed: true,
+})
+.where(eq(resumes.userId, userId));
 
   await db.insert(aiUsageLogs).values({
     userId,

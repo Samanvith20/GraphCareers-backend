@@ -4,6 +4,9 @@ import cors from "cors";
 import cookieParser from "cookie-parser";
 import authRoutes from "./routes/auth.routes.js";
 import userRoutes from "./routes/user.routes.js";
+import jobsRoutes from "./routes/jobs.routes.js"
+import jobApplicationRoutes from "./routes/jobApplication.routes.js";
+import careerprogressionRoutes from "./routes/careerprogression.routes.js"
 
 dotenv.config();
 
@@ -25,6 +28,12 @@ app.use(cookieParser());
 // Auth routes
 app.use("/api/auth", authRoutes);
 app.use("/api/user", userRoutes);
+app.use("/api/jobs",jobsRoutes)
+app.use("/api/career",careerprogressionRoutes)
+app.use(
+  "/api/job-applications",
+  jobApplicationRoutes
+);
 
 app.get("/", (req, res) => {
   res.json({ status: "ok", port: PORT });

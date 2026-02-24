@@ -6,7 +6,7 @@ export async function getUserdetails(req, res) {
     if (!result.success) {
       return res.status(401).json({ error: result.error });
     }
-    return res.json({ profile: result.profile });
+    return res.json({ profile: result.profile ,resume:result.resume,applications:result.applicationsCount});
   } catch (err) {
     console.error("PROFILE CONTROLLER ERROR 👉", err);
     return res.status(500).json({ error: "Internal server error" });

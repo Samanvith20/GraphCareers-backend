@@ -3,7 +3,7 @@ import { ZodError } from "zod";
 export function validate(schema) {
   return (req, res, next) => {
     try {
-      console.log("Validating request body:", req.body);
+      //console.log("Validating request body:", req.body);
 
       // IMPORTANT: overwrite req.body with parsed result
       req.body = schema.parse(req.body);

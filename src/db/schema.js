@@ -56,6 +56,7 @@ export const resumes = pgTable("resumes", {
   userId: uuid("user_id")
     .references(() => users.id)
     .notNull(),
+  pendingFileName :varchar("pending_filename"),
   fileName: varchar("file_name"),
   fileType: varchar("file_type"),
   text: text("text"),
