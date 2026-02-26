@@ -238,33 +238,96 @@ export async function parseResumeWithAIService(userId) {
     model: openrouter(process.env.OPENROUTER_MODEL),
     schema: ResumeSchema,
     temperature: 0.2,
-    prompt: `
-         You are an expert resume parser.
+    
+    prompt:`
+    You are a resume parser.
 
-Your MOST IMPORTANT task is to calculate TOTAL PROFESSIONAL EXPERIENCE IN MONTHS.
+Your task is to extract ONLY TECHNICAL INFORMATION.
+Follow the rules strictly. Do not make assumptions.
 
-Follow this strictly:
+========================
+WORK EXPERIENCE RULES
+========================
 
-1. Identify all work experience entries with dates.
-2. Convert each job duration into months:
-   - "Jan 2023 - Present" → calculate till current month
+1. Identify ALL work experience entries that contain dates.
+2. Convert each job duration into MONTHS:
+   - "Jan 2023 - Present" → calculate until the CURRENT month only
+   - "Jan 2025 - Jan 2026" → 12 months (do NOT add extra month)
    - "1.4 years" → 17 months
    - "1 year 6 months" → 18 months
-   - "6 months" → 6
-   - if user has ended do not count with present month 
-   ex:jan2025-jan2026 ->12 months (do not give 13 months because present month is feb)
-3. Sum ALL job durations.
-4. If fresher, return 0.
+   - "6 months" → 6 months
+3. If a job has ended, DO NOT count the present month.
+4. Sum ALL job durations.
+5. If the user is a fresher, return experienceMonths = 0.
 
-Other rules:
-- Skills: lowercase technical skills only
-- Location: city or city, country
-- Bio: 2-3 professional sentences
-- If unknown: null for strings, [] for skills, 0 for experience
+========================
+SKILLS RULES (VERY IMPORTANT)
+========================
+
+Extract ONLY technical skills.
+
+❌ DO NOT include soft skills, business skills, or generic words.
+❌ DO NOT include responsibilities or job descriptions.
+❌ DO NOT infer skills that are not explicitly mentioned.
+
+STRICTLY EXCLUDE skills like (this list is NOT exhaustive):
+- communication
+- management
+- leadership
+- inventory
+- teamwork
+- collaboration
+- problem solving
+- decision making
+- customer handling
+- documentation
+- planning
+- analysis (unless clearly technical, e.g. "data analysis")
+- design (unless clearly technical, e.g. "system design", "ui design")
+
+✅ INCLUDE ONLY technical skills such as:
+- programming languages
+- frameworks
+- libraries
+- databases
+- cloud platforms
+- devops tools
+- APIs
+- protocols
+- messaging systems
+- testing tools
+
+All skills must:
+- be lowercase
+- be concise
+- be technical only
+- be explicitly present in the resume
+
+If a skill is ambiguous and could be soft or non-technical,
+❗ DO NOT include it.
+
+========================
+OTHER FIELD RULES
+========================
+
+- Location: "city" or "city, country"
+- Bio: 2–3 professional sentences describing technical background only
+- Do NOT include soft skills in bio
+- Do NOT exaggerate or infer experience
+
+========================
+UNKNOWN DATA HANDLING
+========================
+
+If any field is unknown:
+- strings → null
+- skills → []
+- experienceMonths → 0
 
 Resume:
 ${resume.text}
-`,
+
+    `
   });
 
   const cleanedData = {

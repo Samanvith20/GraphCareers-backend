@@ -10,7 +10,6 @@ import {
   doublePrecision,
   pgEnum,
   index,
-  unique,
 } from "drizzle-orm/pg-core";
 
 export const tierEnum = pgEnum("tier", ["free", "pro", "enterprise"]);
@@ -133,13 +132,12 @@ export const userJobApplications = pgTable(
 
 export const jobs = pgTable("jobs", {
   id: uuid("id").primaryKey().defaultRandom(),
-
-  sourceJobId: varchar("source_job_id", { length: 255 }), // from scraper
+ sourceJobId: varchar("source_job_id", { length: 255 }), // from scraper
   title: text("title"),
   employer: text("employer"),
   location: text("location"),
   url: text("url"),
   skills: text("skills").array(), // extracted job skills
-
+  jobtrackingId: uuid("jobtracking_id").references(() => userJobApplications.id).notNull(),
   createdAt: timestamp("created_at").defaultNow(),
 });

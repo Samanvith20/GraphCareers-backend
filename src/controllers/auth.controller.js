@@ -3,6 +3,7 @@ import {
   signupService,
   forgotPasswordService,
   profileService,
+  resetPasswordService,
 } from "../services/auth.service.js";
 import jwt from "jsonwebtoken";
 
@@ -68,6 +69,25 @@ export async function forgotPassword(req, res) {
     console.error("FORGOT PASSWORD ERROR 👉", err);
     return res.status(500).json({ error: "Internal server error" });
   }
+}
+
+
+
+export async function resetPasswordController(req, res) {
+  
+
+  const { token, password } = req.body;
+
+  const result = await resetPasswordService(token, password);
+
+  if (!result.success) {
+    return res.status(400).json({ error: result.error });
+  }
+
+  return res.json({
+    success: true,
+    message: "Password reset successfully. You can now log in.",
+  });
 }
 export async function me(req, res) {
   try {

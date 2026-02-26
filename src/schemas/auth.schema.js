@@ -14,3 +14,8 @@ export const signupSchema = z.object({
 export const forgotPasswordSchema = z.object({
   email: z.string().email(),
 });
+
+export const resetPasswordSchema = z.object({
+  password: z.string().min(6),
+  token: z.string(),
+});

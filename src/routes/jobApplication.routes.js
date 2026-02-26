@@ -18,6 +18,7 @@ router.post(
 
 router.get(
   "/",
+  authMiddleware,
   getUserJobApplicationsController
 );
 

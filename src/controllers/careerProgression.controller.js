@@ -7,7 +7,7 @@ import { users } from "../db/schema.js";
 
 export async function getCareerProgression(req, res) {
   try {
-    const userId = req.user?.id; // coming from auth middleware
+    const userId = req.userId; // coming from auth middleware
 
     if (!userId) {
       return res.status(401).json({ error: "Unauthorized" });

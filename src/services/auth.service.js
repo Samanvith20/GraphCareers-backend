@@ -3,7 +3,7 @@ import { users } from "../db/schema.js";
 import bcrypt from "bcrypt";
 import nodemailer from "nodemailer";
 import { randomUUID } from "crypto";
-import { eq } from "drizzle-orm";
+import { and, eq, gt } from "drizzle-orm";
 
 export async function loginService(email, password) {
   const emailLc = email.trim().toLowerCase();
@@ -82,8 +82,7 @@ export async function forgotPasswordService(email) {
 
   const user = userArr[0];
   const token = randomUUID();
-  const expiry = Date.now() + 60 * 60 * 1000;
-
+  const expiry = Date.now() + 10 * 60 * 1000; // 10 mins
   await db
     .update(users)
     .set({ resetToken: token, resetTokenExpiry: expiry })
@@ -101,7 +100,7 @@ export async function forgotPasswordService(email) {
       to: email,
       subject: "Reset Your Password for GraphCareers",
       text: `Hello ${user.name || "User"},\n\nWe received a request to reset your password for your GraphCareers account.\n\nTo reset your password, please click the link below or paste it into your browser:\n\n${process.env.FRONTEND_URL}/reset-password?token=${token}\n\nIf you did not request a password reset, please ignore this email.\n\nThis link will expire in 1 hour for your security.\n\nBest regards,\nThe GraphCareers Team`,
-      html: `<p>Hello ${user.name || "User"},</p><p>We received a request to reset your password for your <b>GraphCareers</b> account.</p><p><a href="${process.env.FRONTEND_URL}/reset-password?token=${token}">Click here to reset your password</a></p><p>If you did not request a password reset, please ignore this email.</p><p>This link will expire in 1 hour for your security.</p><p>Best regards,<br/>The GraphCareers Team</p>`,
+      html: `<p>Hello ${user.name || "User"},</p><p>We received a request to reset your password for your <b>GraphCareers</b> account.</p><p><a href="${process.env.FRONTEND_URL}/reset-password?token=${token}">Click here to reset your password</a></p><p>If you did not request a password reset, please ignore this email.</p><p>This link will expire in 10 minutes for your security.</p><p>Best regards,<br/>The GraphCareers Team</p>`,
     });
 
   return { success: true };
@@ -123,4 +122,42 @@ export async function profileService(id){
   }
 
   return { success: true, user: user[0] };
+}
+
+
+
+export async function resetPasswordService(token, password) {
+  const now = Date.now();
+
+  const userArr = await db
+    .select()
+    .from(users)
+    .where(
+      and(
+        eq(users.resetToken, token),
+        gt(users.resetTokenExpiry, now)
+      )
+    )
+    .limit(1);
+
+  if (!userArr.length) {
+    return {
+      success: false,
+      error: "Reset link is invalid or has expired.",
+    };
+  }
+
+  const user = userArr[0];
+  const hashedPassword = await bcrypt.hash(password, 12);
+
+  await db
+    .update(users)
+    .set({
+      password: hashedPassword,
+      resetToken: null,
+      resetTokenExpiry: null,
+    })
+    .where(eq(users.id, user.id));
+
+  return { success: true };
 }
