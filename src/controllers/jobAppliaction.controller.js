@@ -34,7 +34,7 @@ export const upsertJobApplicationController = async (req, res) => {
 export const getUserJobApplicationsController = async (req, res) => {
   try {
     const userId = req.userId
-    console.log("userId in job appliactions:;",getUserJobApplicationsController)
+   
 
     if (!userId) {
       return res.status(401).json({ error: "Unauthorized" });

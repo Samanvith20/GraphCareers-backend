@@ -2,17 +2,12 @@ import { eq } from "drizzle-orm";
 import neo4j from "neo4j-driver";
 
 import { getNeo4jSession } from "../db/neo4j/session.js";
-import { normalizeSkill, toNumber } from "../lib/utils.js";
+import { normalizeSkill, SKILL_ALIASES, toNumber } from "../lib/utils.js";
 import { db } from "../db/index.js";
 import { users } from "../db/schema.js";
 
 // lib/skillAliases.js
-export const SKILL_ALIASES = {
-  reactjs: ["react.js", "reactjs", "react"],
-  nodejs: ["node.js", "nodejs", "node"],
-  dotnet: [".net", "dotnet", "asp.net"],
-  expressjs: ["express.js", "express"],
-};
+
 
 export async function getMatchedJobsService({
   userId,
@@ -203,3 +198,4 @@ export async function getMatchedJobsService({
     await session.close();
   }
 }
+

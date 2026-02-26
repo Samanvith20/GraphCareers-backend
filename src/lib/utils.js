@@ -33,3 +33,13 @@ export const getTargetLevels = (experienceMonths) => {
   if (years < 7) return { current: ["mid", "senior"], next: ["senior", "lead"] };
   return { current: ["senior", "lead"], next: ["lead", "staff", "principal"] };
 };
+
+export const SKILL_ALIASES = {
+   react: ["react", "reactjs", "react.js"],
+  node: ["node", "nodejs", "node.js"],
+  dotnet: ["dotnet", ".net", "asp.net"],
+  javascript: ["javascript", "js"],
+  typescript: ["typescript", "ts"],
+  nextjs: ["nextjs", "next.js"],
+  express: ["express", "expressjs", "express.js"],
+};

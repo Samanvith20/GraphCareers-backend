@@ -1,11 +1,30 @@
 import { neo4jDriver } from "../db/neo4j/driver.js";
+import { SKILL_ALIASES } from "../lib/utils.js";
 
 
 export async function getCareerInsightsService({ skills }) {
   const session = neo4jDriver.session();
- const userSkills = skills
-  .flatMap(normalizeSkill)
-  .filter(Boolean);
+  function expandSkills(skills) {
+  const normalized = skills
+    .flatMap(normalizeSkill)
+    .filter(Boolean);
+
+  const expanded = new Set()
+
+  for (const skill of normalized) {
+    expanded.add(skill);
+
+    for (const aliases of Object.values(SKILL_ALIASES)) {
+      if (aliases.includes(skill)) {
+        aliases.forEach(a => expanded.add(a));
+      }
+    }
+  }
+
+  return Array.from(expanded);
+}
+
+const userSkills = expandSkills(skills);
   function normalizeSkill(skill) {
   return skill
     .toLowerCase()
@@ -55,7 +74,7 @@ function onlyTechnical(skills) {
 
   try {
     // --------------------------------------------------
-    // STEP 1: Fetch only roles that match AT LEAST 1 skill
+    // STEP 1: Fetch only roles that match AT LEAST 3 skill
     // --------------------------------------------------
     
     const result = await session.run(
@@ -132,7 +151,7 @@ RETURN r.role_title AS role,
     // --------------------------------------------------
     const topRoles = scoredRoles
       .sort((a, b) => b.matchScore - a.matchScore)
-      .slice(0, 3);
+      .slice(0, 4);
 
     // --------------------------------------------------
     // STEP 4: Perfect horizontal progression
