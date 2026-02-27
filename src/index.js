@@ -22,7 +22,7 @@ app.use(
     origin: (origin, callback) => {
       // allow server-to-server / curl
       if (!origin) return callback(null, true);
-
+  console.log("origin",origin)
       if (allowedOrigins.includes(origin)) {
         return callback(null, true);
       }
