@@ -13,13 +13,25 @@ dotenv.config();
 const app = express();
 const PORT = process.env.PORT ? Number(process.env.PORT) : 3000;
 // CORS: allow only frontend URL
+const allowedOrigins = process.env.FRONTEND_ORIGINS
+  ?.split(",")
+  .map(origin => origin.trim());
+
 app.use(
   cors({
-    origin: process.env.FRONTEND_URL,
-    credentials: true,
-  }),
-);
+    origin: (origin, callback) => {
+      // allow server-to-server / curl
+      if (!origin) return callback(null, true);
 
+      if (allowedOrigins.includes(origin)) {
+        return callback(null, true);
+      }
+
+      return callback(new Error("Not allowed by CORS"));
+    },
+    credentials: true,
+  })
+);
 
 
 app.use(express.json());
