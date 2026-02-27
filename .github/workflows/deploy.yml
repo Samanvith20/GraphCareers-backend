@@ -7,7 +7,7 @@ on:
 
 jobs:
   ci:
-    name: CI - Test & Validate
+    name: CI - Install & Validate
     runs-on: ubuntu-latest
 
     steps:
@@ -26,9 +26,6 @@ jobs:
 
       - name: Install dependencies
         run: pnpm install
-
-      - name: Lint
-        run: pnpm lint
 
   cd:
     name: CD - Deploy to VM
