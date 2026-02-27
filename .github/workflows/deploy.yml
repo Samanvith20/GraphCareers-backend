@@ -2,39 +2,36 @@ name: Backend CI/CD
 
 on:
   push:
-    branches: [ main ]
+    branches:
+      - main
 
 jobs:
   ci:
-  name: CI – Test & Validate
-  runs-on: ubuntu-latest
+    name: CI - Test & Validate
+    runs-on: ubuntu-latest
 
-  steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-    - name: Setup Node
-      uses: actions/setup-node@v4
-      with:
-        node-version: 20
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
 
-    - name: Install pnpm
-      uses: pnpm/action-setup@v3
-      with:
-        version: 9
+      - name: Install pnpm
+        uses: pnpm/action-setup@v3
+        with:
+          version: 9
 
-    - name: Install dependencies
-      run: pnpm install
+      - name: Install dependencies
+        run: pnpm install
 
-    - name: Lint
-      run: pnpm lint
-
-      # Optional – add when ready
-      # - name: Run tests
-      #   run: pnpm test
+      - name: Lint
+        run: pnpm lint
 
   cd:
-    name: CD – Deploy to VM
+    name: CD - Deploy to VM
     needs: ci
     runs-on: ubuntu-latest
 
