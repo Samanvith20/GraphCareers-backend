@@ -20,7 +20,7 @@ export async function getCareerProgression(req, res) {
     if (!user?.skills?.length) {
       return res
         .status(400)
-        .json({ error: "Add your skills to see career progression" });
+        .json({ message: "Add your skills to see career progression" });
     }
 
     const data = await getCareerInsightsService({

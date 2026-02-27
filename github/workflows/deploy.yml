@@ -1,0 +1,52 @@
+name: Backend CI/CD
+
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+  ci:
+    name: CI – Test & Validate
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'pnpm'
+
+      - name: Install pnpm
+        run: npm install -g pnpm
+
+      - name: Install dependencies
+        run: pnpm install
+
+      - name: Lint
+        run: pnpm lint
+        continue-on-error: false
+
+      # Optional – add when ready
+      # - name: Run tests
+      #   run: pnpm test
+
+  cd:
+    name: CD – Deploy to VM
+    needs: ci
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.VM_HOST }}
+          username: ${{ secrets.VM_USER }}
+          key: ${{ secrets.VM_SSH_KEY }}
+          script: |
+            cd ~/GraphCareers-backend
+            git pull origin main
+            pnpm install --prod
+            pm2 restart graphcareers-api
