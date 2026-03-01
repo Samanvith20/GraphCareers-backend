@@ -5,7 +5,7 @@ import { applyRateLimit } from "../middleware/applyRateLimit.js";
 import { careerProgressionLimiter } from "../middleware/rateLimiters/career.limiters.js";
 
 const router=Router()
-const userKey = (req) => `user:${req.user.id}`;
+const userKey = (req) => `user:${req.userId}`;
 
 router.post(
   "/",

@@ -10,7 +10,7 @@ import { jobApplicationsReadLimiter, jobApplicationsWriteLimiter } from "../midd
 import { applyRateLimit } from "../middleware/applyRateLimit.js";
 
 const router = express.Router();
-const userKey = (req) => `user:${req.user.id}`;
+const userKey = (req) => `user:${req.userId}`;
 
 router.post(
   "/",

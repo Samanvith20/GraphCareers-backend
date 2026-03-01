@@ -21,7 +21,7 @@ import {
 
 const router = Router();
 const upload = multer({ storage: multer.memoryStorage() });
-const userKey = (req) => `user:${req.user.id}`;
+const userKey = (req) => `user:${req.userId}`;
 
 router.get(
   "/",
