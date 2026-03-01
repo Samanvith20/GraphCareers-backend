@@ -88,15 +88,18 @@ export async function forgotPasswordService(email) {
     .set({ resetToken: token, resetTokenExpiry: expiry })
     .where(eq(users.id, user.id));
 
-  const transporter = nodemailer.createTransport({
-    service: "gmail",
-    auth: {
-      user: process.env.SMTP_USER,
-      pass: process.env.SMTP_PASS,
-    },
-  });
+ const transporter = nodemailer.createTransport({
+  host: "smtp-relay.brevo.com",
+  port: 587,
+  secure: false,
+  auth: {
+    user: process.env.SMTP_USER, // a39a9a001@smtp-brevo.com
+    pass: process.env.SMTP_PASS, // SMTP KEY
+  },
+});
 
    await transporter.sendMail({
+     from: "GraphCareers <support@graphcareers.com>",
       to: email,
       subject: "Reset Your Password for GraphCareers",
       text: `Hello ${user.name || "User"},\n\nWe received a request to reset your password for your GraphCareers account.\n\nTo reset your password, please click the link below or paste it into your browser:\n\n${process.env.FRONTEND_URL}/reset-password?token=${token}\n\nIf you did not request a password reset, please ignore this email.\n\nThis link will expire in 1 hour for your security.\n\nBest regards,\nThe GraphCareers Team`,

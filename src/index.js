@@ -7,6 +7,7 @@ import userRoutes from "./routes/user.routes.js";
 import jobsRoutes from "./routes/jobs.routes.js"
 import jobApplicationRoutes from "./routes/jobApplication.routes.js";
 import careerprogressionRoutes from "./routes/careerprogression.routes.js"
+import { checkRedisHealth } from "./config/redis.js";
 
 dotenv.config();
 
@@ -34,8 +35,15 @@ app.use(
 );
 
 
+
 app.use(express.json());
 app.use(cookieParser());
+//check redis health
+ const redisHealth= await checkRedisHealth()
+ if (!redisHealth.healthy) {
+      logger.error('Redis health check failed:', redisHealth.error);
+      throw new Error('Redis initialization failed');
+    }
 
 // Auth routes
 app.use("/api/auth", authRoutes);
