@@ -4,9 +4,14 @@ import { eq } from "drizzle-orm";
 import { getCareerInsightsService } from "../services/careerProgression.service.js";
 import { db } from "../db/index.js";
 import { users } from "../db/schema.js";
+import logger from "../logger/logger.js";
 
 export async function getCareerProgression(req, res) {
   try {
+    logger.info("Careerprogression controller started",{
+         requestId:req.requestId,
+         userId:req.userId
+    })
     const userId = req.userId; // coming from auth middleware
 
     if (!userId) {
@@ -27,10 +32,18 @@ export async function getCareerProgression(req, res) {
       skills: user.skills,
       experienceMonths: user.experience || 0,
     });
+    logger.info("careerprogression success",{
+      requestId:req.requestId,
+         userId:req.userId
+    })
 
     return res.json(data);
   } catch (err) {
-    console.error("❌ Career progression error:", err);
+  logger.error("careerprogression failure",{
+          requestId: req.requestId,
+      error: err.message,
+      stack: err.stack,
+  })
     return res.status(500).json({
       error: "Failed to fetch career progression",
       details: err.message,

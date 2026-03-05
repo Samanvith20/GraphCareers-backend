@@ -1,3 +1,4 @@
+import logger from "../logger/logger.js";
 import {
   upsertJobApplicationService,
   getUserJobApplicationsService,
@@ -19,10 +20,17 @@ export const upsertJobApplicationController = async (req, res) => {
       userId,
       ...req.body,
     });
-
+    logger.info("update-userjobapplication success", {
+      requestId: req.requestId,
+      userId: req.userId,
+    });
     return res.json({ success: true });
   } catch (err) {
-    console.error("upsertJobApplicationController error:", err);
+    logger.error("upsertJobApplicationController error:", {
+      requestId: req.requestId,
+      error: err.message,
+      stack: err.stack,
+    });
     return res.status(500).json({ error: "Internal server error" });
   }
 };
@@ -33,18 +41,24 @@ export const upsertJobApplicationController = async (req, res) => {
  */
 export const getUserJobApplicationsController = async (req, res) => {
   try {
-    const userId = req.userId
-   
+    const userId = req.userId;
 
     if (!userId) {
       return res.status(401).json({ error: "Unauthorized" });
     }
 
     const jobs = await getUserJobApplicationsService(userId);
-
+    logger.info("userjobapplication success", {
+      requestId: req.requestId,
+      userId: req.userId,
+    });
     return res.json({ jobs });
   } catch (err) {
-    console.error("getUserJobApplicationsController error:", err);
+    logger.error("getUserJobApplicationsController error:", {
+      requestId: req.requestId,
+      error: err.message,
+      stack: err.stack,
+    });
     return res.status(500).json({ error: "Internal server error" });
   }
 };

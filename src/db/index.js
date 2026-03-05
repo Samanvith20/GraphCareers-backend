@@ -3,6 +3,7 @@ import "dotenv/config";
 import { drizzle } from "drizzle-orm/node-postgres";
 import pkg from "pg";
 import * as schema from "./schema.js";
+import logger from "../logger/logger.js";
 
 const { Pool } = pkg;
 
@@ -18,7 +19,7 @@ if (
 
 // ✅ GLOBAL SINGLETON (ESM safe)
 if (!globalThis.__pgPool) {
-  console.log("🟢 Initializing Postgres pool");
+  logger.info("🟢 Initializing Postgres pool");
 
   globalThis.__pgPool = new Pool({
     host: process.env.DB_HOST,
@@ -33,7 +34,7 @@ if (!globalThis.__pgPool) {
   });
 
   globalThis.__pgPool.on("error", (err) => {
-    console.error("❌ Postgres pool error", err);
+    logger.error("❌ Postgres pool error", err);
   });
 }
 

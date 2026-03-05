@@ -1,9 +1,11 @@
 import Redis from 'ioredis';
+import logger from '../logger/logger.js'
 
 let redis;
-const redisUrl = process.env.BACKEND_REDIS_URL;
+const redisUrl =
+  process.env.BACKEND_REDIS_URL || "redis://localhost:6379";
 
- console.log('redisUrl:', redisUrl);
+ logger.debug('redisUrl:', redisUrl);
 
 if (
   redisUrl &&
@@ -12,22 +14,22 @@ if (
   // Use as a standard Redis URL
   redis = new Redis(redisUrl, { connectTimeout: 500 });
 } else {
-  console.error('BACKEND_REDIS_HOST environment variable is not set');
+  logger.error('BACKEND_REDIS_HOST environment variable is not set');
   throw new Error('BACKEND_REDIS_HOST environment variable is not set');
 }
 
 redis.on('ready', () => {
-  console.info('ioredis is ready and connected to Redis.');
+  logger.info('ioredis is ready and connected to Redis.');
  
 });
 
 redis.on('error', (err) => {
-  console.error('ioredis encountered an error:', err);
+  logger.error('ioredis encountered an error:', err);
  
 });
 
 redis.on('reconnecting', () => {
-  console.error('ioredis is reconnecting to Redis...');
+  logger.error('ioredis is reconnecting to Redis...');
   //console.log('ioredis is reconnecting to Redis...');
 });
 
@@ -37,16 +39,15 @@ export const checkRedisHealth = async () => {
     const start = Date.now();
     await redis.ping();
     const latency = Date.now() - start;
-    console.info(`✅ Redis connected successfully. Latency: ${latency}ms`);
-    console.log(await redis.ping());
+    logger.info(`✅ Redis connected successfully. Latency: ${latency}ms`);
+ 
     return {
       healthy: true,
       latency,
       connected: redis.status === 'ready',
     };
   } catch (error) {
-    console.error('ioredis health check failed:', error);
-    console.error('ioredis encountered an error:', error);
+    logger.error('ioredis health check failed:', error);
     return {
       healthy: false,
       error: error.message,

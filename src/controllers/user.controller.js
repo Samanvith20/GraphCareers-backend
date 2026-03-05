@@ -1,3 +1,4 @@
+import logger from "../logger/logger.js";
 import {  getUserJobApplicationsService, getUserProfileService, parseResumeWithAIService, updateUserProfileService, uploadResumeService,  } from "../services/user.service.js";
 
 export async function getUserdetails(req, res) {
@@ -6,9 +7,16 @@ export async function getUserdetails(req, res) {
     if (!result.success) {
       return res.status(401).json({ error: result.error });
     }
+    logger.info("user profile fetched success",{
+      requestId:req.requestId
+    })
     return res.json({ profile: result.profile ,resume:result.resume,applications:result.applicationsCount});
   } catch (err) {
-    console.error("PROFILE CONTROLLER ERROR 👉", err);
+    logger.error("PROFILE CONTROLLER ERROR ", {
+      requestId: req.requestId,
+      error: err.message,
+      stack: err.stack,
+    });
     return res.status(500).json({ error: "Internal server error" });
   }
 }
@@ -42,16 +50,23 @@ if (Object.keys(updateData).length === 0) {
   return res.status(400).json({
     message: "No fields provided for update",
   });
-}
+} 
 
     const updatedUser = await updateUserProfileService(userId, updateData);
+     logger.info("update user profile",{
+             requestId:req.requestId
 
+     })
     return res.json({
       message: "Profile updated successfully",
       user: updatedUser,
     });
   } catch (err) {
-    console.error("PROFILE UPDATE CONTROLLER ERROR 👉", err);
+    logger.error("PROFILE UPDATE CONTROLLER ERROR", {
+      requestId: req.requestId,
+      error: err.message,
+      stack: err.stack,
+    });
     return res.status(500).json({ error: "Internal server error" });
   }
 };
@@ -62,14 +77,21 @@ export async function uploadUserResume(req, res) {
     const file = req.file;
 
     const result = await uploadResumeService(userId, file);
-
+      logger.info("user resume uploaded succeddfully",{
+              requestId:req.requestId,
+userId:userId
+      })
     return res.json({
       success: true,
       message: "Resume uploaded & text extracted",
       textLength: result.textLength,
     });
   } catch (err) {
-    console.error("RESUME UPLOAD ERROR 👉", err);
+    logger.error("RESUME UPLOAD ERROR ", {
+      requestId: req.requestId,
+      error: err.message,
+      stack: err.stack,
+    });
     return res.status(err.status || 500).json({
       error: err.message || "Failed to upload resume",
     });
@@ -81,13 +103,20 @@ export async function parseUserResumeWithAI(req, res) {
     const userId = req.userId
 
     const data = await parseResumeWithAIService(userId);
+      logger.info("resume parsing with ai compeletd successfully",{
+              requestId:req.requestId
 
+      })
     return res.json({
       success: true,
       data,
     });
   } catch (err) {
-    console.error("RESUME AI PARSE ERROR 👉", err);
+    logger.error("RESUME AI PARSE ERROR ", {
+      requestId: req.requestId,
+      error: err.message,
+      stack: err.stack,
+    });
     return res.status(err.status || 500).json({
       error: err.message || "Failed to parse resume",
     });
