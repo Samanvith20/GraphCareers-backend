@@ -10,6 +10,8 @@ services:
       - ${ENV_FILE}
     depends_on:
       - redis
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     restart: unless-stopped
 
   redis:
