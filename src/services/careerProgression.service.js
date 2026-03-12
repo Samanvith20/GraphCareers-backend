@@ -85,45 +85,41 @@ export async function getCareerInsightsService({ skills }) {
     //   - salary, companies, difficulty_level
     // -------------------------------------------------------------------------
     const rolesResult = await session.run(
-      `
-      MATCH (r:Role)-[rel:REQUIRES]->(s:Skill)-[:HAS_ATOMIC]->(a:AtomicSkill)
-      WHERE rel.frequency IS NOT NULL
-        AND a.name IN $userSkills
+  `
+  MATCH (r:Role)-[rel:REQUIRES]->(s:Skill)
+  WHERE rel.frequency IS NOT NULL
+    AND s.canonical IN $userSkills
 
-      WITH r, collect(DISTINCT a.name) AS matchedAtomics
-      WHERE size(matchedAtomics) >= 3
+  WITH r, collect(DISTINCT s.canonical) AS matchedSkills
+  WHERE size(matchedSkills) >= 3
 
-      // Fetch ALL required atomic skills for this role
-      MATCH (r)-[rel2:REQUIRES]->(s2:Skill)-[:HAS_ATOMIC]->(a2:AtomicSkill)
-      WHERE rel2.frequency IS NOT NULL
+  // Fetch ALL required skills for this role
+  MATCH (r)-[rel2:REQUIRES]->(s2:Skill)
+  WHERE rel2.frequency IS NOT NULL
 
-      // Demand rank lives on the Skill node (set by post-processing)
-      WITH r, matchedAtomics, a2,
-           s2.demand_rank AS demandRank
+  OPTIONAL MATCH (j:Job)-[:MAPS_TO]->(r)
+  WHERE j.expires_at > datetime()
 
-      OPTIONAL MATCH (j:Job)-[:MAPS_TO]->(r)
-      WHERE j.expires_at > datetime()
+  OPTIONAL MATCH (j)-[:POSTED_BY]->(c:Company)
+  OPTIONAL MATCH (j)-[:OFFERS_SALARY]->(sal:Salary)
 
-      OPTIONAL MATCH (j)-[:POSTED_BY]->(c:Company)
-      OPTIONAL MATCH (j)-[:OFFERS_SALARY]->(sal:Salary)
+  WITH r,
+       matchedSkills,
+       collect(DISTINCT { name: s2.canonical, demandRank: s2.demand_rank }) AS allSkillsWithRank,
+       collect(DISTINCT c.name)[0..10] AS companies,
+       avg(sal.min) AS avgMin,
+       avg(sal.max) AS avgMax
 
-      WITH r,
-           matchedAtomics,
-           collect(DISTINCT { name: a2.name, demandRank: demandRank }) AS allAtomicsWithRank,
-           collect(DISTINCT c.name)[0..10]  AS companies,
-           avg(sal.min) AS avgMin,
-           avg(sal.max) AS avgMax
-
-      RETURN r.role_title       AS role,
-             r.difficulty_level AS difficulty,
-             matchedAtomics,
-             allAtomicsWithRank,
-             companies,
-             avgMin,
-             avgMax
-      `,
-      { userSkills }
-    );
+  RETURN r.role_title       AS role,
+         r.difficulty_level AS difficulty,
+         matchedSkills,
+         allSkillsWithRank,
+         companies,
+         avgMin,
+         avgMax
+  `,
+  { userSkills }
+);
 
     if (!rolesResult.records.length) {
       return { careerPath: [], progression: null, lateralSwitches: [] };
@@ -134,8 +130,8 @@ export async function getCareerInsightsService({ skills }) {
     // -------------------------------------------------------------------------
     const roles = rolesResult.records
       .map((rec) => {
-        const matched = onlyTechnical(rec.get("matchedAtomics") ?? []);
-        const allWithRank = rec.get("allAtomicsWithRank") ?? [];
+        const matched = onlyTechnical(rec.get("matchedSkills") ?? []);
+        const allWithRank = rec.get("allSkillsWithRank") ?? [];
 
         // Separate matched vs missing; sort missing by demand_rank ASC
         // (lower rank = more in-demand = learn first)
@@ -189,37 +185,64 @@ export async function getCareerInsightsService({ skills }) {
     // -------------------------------------------------------------------------
 
     // Extract a "family token" from bestRole title  e.g. "Backend Developer" → "backend"
-    const bestTokens = new Set(
-      bestRole.role
-        .toLowerCase()
-        .replace(/[^a-z0-9 ]/g, " ")
-        .split(" ")
-        .filter((t) => t.length > 3)
-    );
+    // -------------------------------------------------------------------------
+// STEP B: Next-level progression role
+// -------------------------------------------------------------------------
 
-    const progressionCandidates = roles
-      .filter((r) => {
-        if (r.role === bestRole.role) return false;
+const bestTokens = new Set(
+  bestRole.role
+    .toLowerCase()
+    .replace(/[^a-z0-9 ]/g, " ")
+    .split(" ")
+    .filter((t) => t.length > 3)
+);
 
-        // Must be higher difficulty OR have a clear seniority keyword
-        const isHarder = (r.difficulty ?? 1) > (bestRole.difficulty ?? 1);
-        const titleTokens = r.role.toLowerCase().split(" ");
-        const sharesFamilyToken = titleTokens.some((t) => bestTokens.has(t));
+// Key seniority keywords to detect promotions
+const SENIORITY_LADDER = ["junior", "associate", "mid", "senior", "lead", "principal", "staff", "architect", "head", "director"];
 
-        // Skill gap must be learnable (user already knows > 40 %)
-        const gapRatio = r.missingSkills.length / Math.max(r.allSkills.length, 1);
-        const learnableGap = gapRatio <= 0.6;
+function getSeniorityIndex(title) {
+  const lower = title.toLowerCase();
+  for (let i = SENIORITY_LADDER.length - 1; i >= 0; i--) {
+    if (lower.includes(SENIORITY_LADDER[i])) return i;
+  }
+  return -1; // no seniority keyword found
+}
 
-        return (isHarder || sharesFamilyToken) && learnableGap;
-      })
-      .sort((a, b) => {
-        // prefer higher difficulty first, then higher matchScore
-        const diffDelta = (b.difficulty ?? 1) - (a.difficulty ?? 1);
-        if (diffDelta !== 0) return diffDelta;
-        return b.matchScore - a.matchScore;
-      });
+const bestSeniority = getSeniorityIndex(bestRole.role);
 
-    const nextRole = progressionCandidates[0] ?? null;
+const progressionCandidates = roles
+  .filter((r) => {
+    if (r.role === bestRole.role) return false;
+
+    const titleTokens = r.role.toLowerCase().replace(/[^a-z0-9 ]/g, " ").split(" ");
+
+    // Must share at least one meaningful role family token
+    // e.g. "Frontend Developer" → "Senior Frontend Developer" shares "frontend"
+    const sharesFamilyToken = titleTokens.some((t) => t.length > 3 && bestTokens.has(t));
+
+    // Must be strictly harder difficulty
+    const isHarder = (toSafeNumber(r.difficulty) ?? 1) > (toSafeNumber(bestRole.difficulty) ?? 1);
+
+    // OR same difficulty but higher seniority keyword in title
+    const candidateSeniority = getSeniorityIndex(r.role);
+    const isHigherSeniority = candidateSeniority > bestSeniority;
+
+    // Gap must be learnable: user already knows > 40% of required skills
+    const gapRatio = r.missingSkills.length / Math.max(r.allSkills.length, 1);
+    const learnableGap = gapRatio <= 0.6;
+
+    return (isHarder || isHigherSeniority) && sharesFamilyToken && learnableGap;
+  })
+  .sort((a, b) => {
+    // Prefer closest difficulty jump (avoid jumping from junior → architect directly)
+    const bestDiff = toSafeNumber(bestRole.difficulty) ?? 1;
+    const aDelta = Math.abs((toSafeNumber(a.difficulty) ?? 1) - bestDiff);
+    const bDelta = Math.abs((toSafeNumber(b.difficulty) ?? 1) - bestDiff);
+    if (aDelta !== bDelta) return aDelta - bDelta; // smallest jump first
+    return b.matchScore - a.matchScore;
+  });
+
+const nextRole = progressionCandidates[0] ?? null;
 
     // -------------------------------------------------------------------------
     // STEP C: Lateral switch roles

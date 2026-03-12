@@ -42,5 +42,5 @@ jobs:
           script: |
             cd ~/GraphCareers-backend
             git pull origin main
-            pnpm install --prod
-            pm2 restart graphcareers-api
+            pnpm install
+            ENV_FILE=.env docker compose up -d --build

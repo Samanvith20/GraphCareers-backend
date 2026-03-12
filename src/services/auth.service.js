@@ -4,6 +4,10 @@ import bcrypt from "bcrypt";
 import nodemailer from "nodemailer";
 import { randomUUID } from "crypto";
 import { and, eq, gt } from "drizzle-orm";
+import { OAuth2Client } from "google-auth-library";
+
+
+const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 
 export async function loginService(email, password) {
   const emailLc = email.trim().toLowerCase();
@@ -56,6 +60,57 @@ export async function signupService(name, email, password) {
     .insert(users)
     .values({ name, email: emailLc, password: hash })
     .returning();
+
+  return {
+    success: true,
+    user: {
+      id: user.id,
+      name: user.name,
+      email: user.email,
+    },
+  };
+}
+
+
+
+export async function googleAuthService(token) {
+
+  const ticket = await client.verifyIdToken({
+    idToken: token,
+    audience: process.env.GOOGLE_CLIENT_ID,
+  });
+
+  const payload = ticket.getPayload();
+
+  const emailLc = payload.email.trim().toLowerCase();
+
+  const { name, picture, sub } = payload;
+
+  // check if user exists
+  const existing = await db
+    .select()
+    .from(users)
+    .where(eq(users.email, emailLc))
+    .limit(1);
+
+  let user;
+
+  if (existing.length) {
+    user = existing[0];
+  } else {
+    const [newUser] = await db
+      .insert(users)
+      .values({
+        name,
+        email: emailLc,
+        googleId: sub,
+        avatar: picture,
+        provider: "google"
+      })
+      .returning();
+
+    user = newUser;
+  }
 
   return {
     success: true,

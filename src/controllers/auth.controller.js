@@ -5,8 +5,10 @@ import {
   forgotPasswordService,
   profileService,
   resetPasswordService,
+  googleAuthService,
 } from "../services/auth.service.js";
 import jwt from "jsonwebtoken";
+
 
 export async function login(req, res) {
   try {
@@ -76,6 +78,49 @@ export async function signup(req, res) {
     return res.status(500).json({ error: "Internal server error" });
   }
 }
+
+export const googleAuth = async (req, res) => {
+  try {
+    logger.info("googlesignupattempt",{
+      requestId: req.requestId,
+    })
+    
+    const { token } = req.body;
+    
+
+    const result = await googleAuthService(token);
+ 
+
+    if (!result.success) {
+      return res.status(401).json({ error: result.error });
+    }
+
+    const jwtToken = jwt.sign(
+      { id: result.user.id },
+      process.env.JWT_SECRET,
+      { expiresIn: "7d" }
+    );
+
+    const isProd = process.env.NODE_ENV === "production";
+
+    res.cookie("token", jwtToken, {
+      httpOnly: true,
+      secure: isProd,
+      sameSite: isProd ? "none" : "lax",
+      maxAge: 7 * 24 * 60 * 60 * 1000,
+    });
+    logger.info("google login success",{
+      requestId:req.requestId
+    })
+
+    return res.json({ user: result.user });
+
+  } catch (err) {
+    
+    console.log("err::",err)
+    return res.status(500).json({ error: "Internal server error",err });
+  }
+};
 
 export async function forgotPassword(req, res) {
   try {

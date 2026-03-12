@@ -14,7 +14,6 @@
   "license": "ISC",
   "packageManager": "pnpm@10.19.0",
   "dependencies": {
-    "@ai-sdk/google": "^3.0.36",
     "@ai-sdk/openai": "^3.0.30",
     "ai": "^6.0.97",
     "bcrypt": "^6.0.0",
@@ -24,6 +23,7 @@
     "drizzle-kit": "^0.31.9",
     "drizzle-orm": "^0.45.1",
     "express": "^5.2.1",
+    "google-auth-library": "^10.6.1",
     "ioredis": "^5.10.0",
     "jsonwebtoken": "^9.0.3",
     "mammoth": "^1.11.0",

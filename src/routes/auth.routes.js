@@ -5,6 +5,7 @@ import {
   forgotPassword,
   me,
   resetPasswordController,
+  googleAuth,
 } from "../controllers/auth.controller.js";
 
 import { validate } from "../middleware/validate.js";
@@ -36,6 +37,7 @@ router.post(
   validate(loginSchema),
   login,
 );
+router.post("/google",googleAuth)
 
 // POST /api/auth/signup
 router.post(
@@ -65,6 +67,7 @@ router.post("/logout", authMiddleware, (req, res) => {
   res.clearCookie("token");
   return res.json({ success: true });
 });
+
 
 router.get("/me", authMiddleware, me);
 
