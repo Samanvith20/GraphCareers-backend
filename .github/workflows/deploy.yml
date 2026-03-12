@@ -1,16 +1,65 @@
-- name: Deploy via SSH
-  uses: appleboy/ssh-action@v1.0.3
-  with:
-    host: ${{ secrets.VM_HOST }}
-    username: ${{ secrets.VM_USER }}
-    key: ${{ secrets.VM_SSH_KEY }}
-    script: |
-      echo "Connected to VM"
-      whoami
-      hostname
-      echo "HOME:"
-      echo $HOME
-      echo "Current directory:"
-      pwd
-      echo "Files in HOME:"
-      ls -la $HOME
+name: Backend CI/CD
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  ci:
+    name: CI - Install & Validate
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v3
+        with:
+          version: 9
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+  cd:
+    name: CD - Deploy to VM
+    needs: ci
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.VM_HOST }}
+          username: ${{ secrets.VM_USER }}
+          key: ${{ secrets.VM_SSH_KEY }}
+          script: |
+            set -e
+
+            PROJECT_DIR=$HOME/GraphCareers-backend
+
+            # Clone repo if it doesn't exist
+            if [ ! -d "$PROJECT_DIR" ]; then
+              git clone https://github.com/${{ github.repository }} $PROJECT_DIR
+            fi
+
+            cd $PROJECT_DIR
+
+            git pull origin main
+
+            # Ensure pnpm exists
+            if ! command -v pnpm &> /dev/null
+            then
+              npm install -g pnpm
+            fi
+
+            pnpm install --frozen-lockfile
+
+            docker compose down
+            ENV_FILE=.env docker compose up -d --build
