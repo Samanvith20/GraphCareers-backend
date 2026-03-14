@@ -17,6 +17,7 @@
     "@ai-sdk/openai": "^3.0.30",
     "ai": "^6.0.97",
     "bcrypt": "^6.0.0",
+    "bullmq": "^5.71.0",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.6",
     "dotenv": "^17.3.1",

@@ -46,17 +46,28 @@ app.use(
 /* ---------------- Request ID + Logging ---------------- */
 // Track every request individually.
 app.use((req, res, next) => {
-  req.requestId = randomUUID();
+  const requestId = randomUUID();
+
+  req.requestId = requestId;
+  res.setHeader("X-Request-ID", requestId);
 
   logger.http("Incoming request", {
-    requestId: req.requestId,
+    requestId,
     method: req.method,
     url: req.url,
   });
 
+  res.on("finish", () => {
+    logger.http("Request completed", {
+      requestId,
+      status: res.statusCode,
+      method: req.method,
+      url: req.url,
+    });
+  });
+
   next();
 });
-
 /* ---------------- Metrics Middleware ---------------- */
 // Collect numerical performance data.
 
@@ -99,14 +110,18 @@ app.get("/", (req, res) => {
 // Catch unexpected failures.
 
 app.use((err, req, res, next) => {
-  logger.error("API error", {
+
+  logger.error("Unhandled error", {
     requestId: req.requestId,
-    route: req.url,
-    error: err.message,
-    stack: err.stack,
+    message: err.message,
+    stack: err.stack
   });
 
-  res.status(500).json({ error: "Internal server error" });
+  res.status(err.status || 500).json({
+    error: err.message || "Internal server error",
+    requestId: req.requestId
+  });
+
 });
 
 /* ---------------- Server Bootstrap ---------------- */

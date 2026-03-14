@@ -6,7 +6,6 @@ import { authMiddleware } from "../middleware/auth.js";
 import {
   getUserdetails,
   getuserJobs,
-  parseUserResumeWithAI,
   updateUserProfile,
   uploadUserResume,
 } from "../controllers/user.controller.js";
@@ -52,11 +51,11 @@ router.post(
 );
 
 // ✅ Resume → AI extraction → profile update
-router.post(
-  "/resume-parse",
-  authMiddleware,
-  applyRateLimit(resumeUploadLimiter, userKey),
-  parseUserResumeWithAI,
-);
+// router.post(
+//   "/resume-parse",
+//   authMiddleware,
+//   applyRateLimit(resumeUploadLimiter, userKey),
+//   parseUserResumeWithAI,
+// );
 
 export default router;
