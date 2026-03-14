@@ -10,6 +10,7 @@ import { eq } from "drizzle-orm";
 
 import { resumeQueue } from "../queue/resumeQueue.js";
 import logger from "../logger/logger.js";
+import fs from "fs/promises";
 
 new Worker(
   "resume-parse",
@@ -67,6 +68,7 @@ new Worker(
       }
 
     }
+console.log("Pushing AI job", userId);
 
 
     // push to AI processing queue
