@@ -9,6 +9,7 @@ import { resumes } from "../db/schema.js";
 import { eq } from "drizzle-orm";
 
 import { resumeQueue } from "../queue/resumeQueue.js";
+import logger from "../logger/logger.js";
 
 new Worker(
   "resume-parse",
