@@ -40,23 +40,22 @@ jobs:
           username: ${{ secrets.VM_USER }}
           key: ${{ secrets.VM_SSH_KEY }}
           script: |
-                  
-                    echo "User:"
-                      whoami
 
-                      echo "Directory:"
-                           pwd
+            echo "User:"
+              whoami
 
-                    cd /home/${{ secrets.VM_USER }}/GraphCareers-backend || exit 1
+              echo "Directory:"
+                   pwd
 
-                    echo "Inside backend directory:"
-                     pwd
-                       ls -la
+            cd /home/${{ secrets.VM_USER }}/GraphCareers-backend || exit 1
 
-                      echo "Pulling latest code..."
-                    git pull origin main
+            echo "Inside backend directory:"
+             pwd
+               ls -la
 
-                     echo "Restarting containers..."
-                     docker compose down
-                       ENV_FILE=.env docker compose up -d --build
-                 
+              echo "Pulling latest code..."
+            git pull origin main
+
+             echo "Restarting containers..."
+             docker compose down
+               ENV_FILE=.env docker compose up -d --build

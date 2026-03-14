@@ -8,6 +8,7 @@ import { normalizeSkills } from "../lib/utils.js";
 import { resumeParseQueue } from "../queue/resumeParseQueue.js";
 import fs from "fs/promises";
 import path from "path";
+import logger from "../logger/logger.js";
 
 const MAX_SIZE = 500 * 1024;
 
@@ -163,7 +164,7 @@ const usage = await db
   console.timeEnd("get usage");
 
 const totalUsage = Number(usage[0].total);
-console.log("totalUsage", totalUsage);
+logger.info("totalUsage", totalUsage);
 
 if (totalUsage >= TIER_LIMITS[user.tier]) {
   throw {
@@ -172,10 +173,6 @@ if (totalUsage >= TIER_LIMITS[user.tier]) {
   };
 }
 
-logger.info("upload resume service called",{
-  requestId,
-  userId
-});
 
 const fileName = file.originalname.toLowerCase();
 const safeName = fileName.replace(/[^a-z0-9.\-_]/gi, "_");
