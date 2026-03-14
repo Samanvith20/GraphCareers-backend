@@ -40,22 +40,23 @@ jobs:
           username: ${{ secrets.VM_USER }}
           key: ${{ secrets.VM_SSH_KEY }}
           script: |
-                   echo "Current user:"
-                    whoami
+                  
+                    echo "User:"
+                      whoami
 
-                     echo "Current directory:"
-                      pwd
+                      echo "Directory:"
+                           pwd
 
-                    echo "Files here:"
-                     ls -la
+                    cd /home/${{ secrets.VM_USER }}/GraphCareers-backend || exit 1
 
-                   cd /home/${{ secrets.VM_USER }}/GraphCareers-backend || exit 1
+                    echo "Inside backend directory:"
+                     pwd
+                       ls -la
 
-                   echo "Inside backend directory:"
-                    pwd
-                     ls -la
+                      echo "Pulling latest code..."
+                    git pull origin main
 
-                        pnpm install --frozen-lockfile
-
+                     echo "Restarting containers..."
                      docker compose down
-                     ENV_FILE=.env docker compose up -d --build
+                       ENV_FILE=.env docker compose up -d --build
+                 
