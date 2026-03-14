@@ -15,7 +15,7 @@ new Worker(
   "resume-parse",
   async (job) => {
 
-    const { userId, buffer, fileType,filePath,requestId } = job.data;
+    let { userId, buffer, fileType,filePath,requestId } = job.data;
 
     logger.info("Parsing resume for user:", {
         requestId,
@@ -75,7 +75,7 @@ new Worker(
       requestId,
     });
 
-    console.log("Resume parsed successfully:", userId);
+    console.log("Resume parsed successfully and pushed to AI queue:", userId);
   },
   {
     connection,

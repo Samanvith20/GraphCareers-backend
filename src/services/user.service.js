@@ -191,21 +191,27 @@ const filePath = path.join(uploadDir, uniqueName);
 
 await fs.writeFile(filePath, file.buffer);
 
-await db.insert(resumes)
-  .values({
+const existingResume = await db.query.resumes.findFirst({
+  where: eq(resumes.userId, userId)
+});
+
+if (existingResume) {
+  await db.update(resumes)
+    .set({
+      pendingFileName: uniqueName,
+      fileType: isPDF ? "pdf" : "docx",
+      isResumeParsed: false
+    })
+    .where(eq(resumes.userId, userId));
+
+} else {
+  await db.insert(resumes).values({
     userId,
     pendingFileName: uniqueName,
     fileType: isPDF ? "pdf" : "docx",
     isResumeParsed: false
-  })
-  .onConflictDoUpdate({
-    target: resumes.userId,
-    set: {
-      pendingFileName: uniqueName,
-      fileType: isPDF ? "pdf" : "docx",
-      isResumeParsed: false
-    }
   });
+}
 
 await resumeParseQueue.add(
   "parseResume",
@@ -228,7 +234,7 @@ logger.info("parse resume queue added",{
   return { status: "processing" };
 }
 
-export async function parseResumeWithAIService(userId) {
+export async function parseResumeWithAIService(userId,requestId) {
   const user = await db.query.users.findFirst({
     where: eq(users.id, userId),
   });
