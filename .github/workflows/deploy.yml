@@ -40,9 +40,22 @@ jobs:
           username: ${{ secrets.VM_USER }}
           key: ${{ secrets.VM_SSH_KEY }}
           script: |
-            cd GraphCareers-backend
+                   echo "Current user:"
+                    whoami
 
-            pnpm install --frozen-lockfile
+                     echo "Current directory:"
+                      pwd
 
-            docker compose down
-            ENV_FILE=.env docker compose up -d --build
+                    echo "Files here:"
+                     ls -la
+
+                   cd /home/${{ secrets.VM_USER }}/GraphCareers-backend || exit 1
+
+                   echo "Inside backend directory:"
+                    pwd
+                     ls -la
+
+                        pnpm install --frozen-lockfile
+
+                     docker compose down
+                     ENV_FILE=.env docker compose up -d --build

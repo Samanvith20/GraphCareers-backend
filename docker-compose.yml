@@ -15,6 +15,8 @@ services:
 
   redis:
     image: redis:7-alpine
+    ports:
+      - "6379:6379"
     restart: unless-stopped
 
   postgres:
@@ -27,7 +29,7 @@ services:
 
   resume-worker:
     build: .
-    command: node workers/resumeWorker.js
+    command: node src/workers/resumeWorker.js
     env_file:
       - ${ENV_FILE}
     depends_on:
@@ -37,7 +39,7 @@ services:
 
   resume-parse-worker:
     build: .
-    command: node workers/resumeParseWorker.js
+    command: node src/workers/resumeParseWorker.js
     env_file:
       - ${ENV_FILE}
     depends_on:
