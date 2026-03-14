@@ -198,7 +198,7 @@ const existingResume = await db.query.resumes.findFirst({
 if (existingResume) {
   await db.update(resumes)
     .set({
-      pendingFileName: uniqueName,
+      pendingFileName: fileName,
       fileType: isPDF ? "pdf" : "docx",
       isResumeParsed: false
     })
@@ -207,7 +207,7 @@ if (existingResume) {
 } else {
   await db.insert(resumes).values({
     userId,
-    pendingFileName: uniqueName,
+    pendingFileName: fileName,
     fileType: isPDF ? "pdf" : "docx",
     isResumeParsed: false
   });

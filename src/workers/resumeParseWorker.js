@@ -16,7 +16,7 @@ new Worker(
   "resume-parse",
   async (job) => {
 
-    let { userId, buffer, fileType,filePath,requestId } = job.data;
+    let { userId,  fileType,filePath,requestId } = job.data;
 
     logger.info("Parsing resume for user:", {
         requestId,
@@ -25,7 +25,7 @@ new Worker(
 
       try {
 
-      buffer = await fs.readFile(filePath);
+     const buffer = await fs.readFile(filePath);
 
       let text = "";
 
@@ -54,7 +54,7 @@ new Worker(
         .set({
           text,
           fileName: filePath,
-          isResumeParsed: true
+          isResumeParsed:false
         })
         .where(eq(resumes.userId, userId));
 
@@ -68,7 +68,11 @@ new Worker(
       }
 
     }
-console.log("Pushing AI job", userId);
+
+    logger.info("Resume parsed successfully and pushing to AI queue:",{
+      userId,
+      requestId
+    });
 
 
     // push to AI processing queue
@@ -77,7 +81,10 @@ console.log("Pushing AI job", userId);
       requestId,
     });
 
-    console.log("Resume parsed successfully and pushed to AI queue:", userId);
+    logger.info("Resume parsed successfully and pushed to AI queue:", {
+      userId,
+      requestId
+    });
   },
   {
     connection,
