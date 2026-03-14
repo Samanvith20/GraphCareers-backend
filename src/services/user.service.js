@@ -133,7 +133,7 @@ export async function updateUserProfileService(userId, data) {
 const uploadDir = path.join(process.cwd(), "uploads/resumes");
 
 export async function uploadResumeService(userId, file, requestId) {
-console.log("api satrted time", Date.now().getTime());
+//console.log("api satrted time", Date.now().getTime());
   if (!file) {
     throw { status: 400, message: "No resume uploaded" };
   }

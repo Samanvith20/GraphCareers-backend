@@ -40,24 +40,7 @@ jobs:
           username: ${{ secrets.VM_USER }}
           key: ${{ secrets.VM_SSH_KEY }}
           script: |
-            set -e
-
-            PROJECT_DIR=$HOME/GraphCareers-backend
-
-            # Clone repo if it doesn't exist
-            if [ ! -d "$PROJECT_DIR" ]; then
-              git clone https://github.com/${{ github.repository }} $PROJECT_DIR
-            fi
-
-            cd $PROJECT_DIR
-
-            git pull origin main
-
-            # Ensure pnpm exists
-            if ! command -v pnpm &> /dev/null
-            then
-              npm install -g pnpm
-            fi
+            cd GraphCareers-backend
 
             pnpm install --frozen-lockfile
 
