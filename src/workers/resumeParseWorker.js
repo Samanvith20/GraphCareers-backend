@@ -15,28 +15,26 @@ import fs from "fs/promises";
 new Worker(
   "resume-parse",
   async (job) => {
+    const { userId, fileType, filePath, fileName, requestId } = job.data;
 
-    let { userId,  fileType,filePath,requestId } = job.data;
+    logger.info("Parsing resume for user", { userId, requestId });
 
-    logger.info("Parsing resume for user:", {
-        requestId,
-        userId
-    });
+    try {
+      await db
+        .update(resumes)
+        .set({
+          pendingFileName: fileName,
+          status: "processing",
+        })
+        .where(eq(resumes.userId, userId));
 
-      try {
-
-     const buffer = await fs.readFile(filePath);
+      const buffer = await fs.readFile(filePath);
 
       let text = "";
 
       if (fileType === "pdf") {
-        const result = await extractText(buffer);
-
-        if (typeof result?.text === "string") {
-          text = result.text;
-        } else if (Array.isArray(result?.text)) {
-          text = result.text.join(" ");
-        }
+        const result = await extractText(new Uint8Array(buffer));
+        text = Array.isArray(result.text) ? result.text.join(" ") : result.text;
       }
 
       if (fileType === "docx") {
@@ -50,44 +48,48 @@ new Worker(
         throw new Error("Resume parsing failed");
       }
 
-      await db.update(resumes)
+      // await db.update(resumes)
+      //   .set({
+      //     text,
+      //     fileName,
+      //     status: "completed",
+      //     isResumeParsed: true,
+      //     errorMessage: null
+      //   })
+      //   .where(eq(resumes.userId, userId));
+
+      logger.info("Pushing job to AI queue", { userId, requestId });
+
+      await resumeQueue.add("resumeAI", {
+        userId,
+        requestId,
+      });
+
+      logger.info("Job pushed to AI queue", {
+        userId,
+        requestId,
+      });
+    } catch (err) {
+      await db
+        .update(resumes)
         .set({
-          text,
-          fileName: filePath,
-          isResumeParsed:false
+          status: "failed",
+          errorMessage: err.message,
         })
         .where(eq(resumes.userId, userId));
 
+      logger.error("Resume parsing failed", {
+        error: err.message,
+        userId,
+        requestId,
+      });
     } finally {
-
-      // cleanup file always
       try {
         await fs.unlink(filePath);
       } catch {
-        console.warn("file already deleted:", filePath);
+        console.warn("already deleted file", filePath);
       }
-
     }
-
-    logger.info("Resume parsed successfully and pushing to AI queue:",{
-      userId,
-      requestId
-    });
-
-
-    // push to AI processing queue
-    await resumeQueue.add("resumeAI", {
-      userId,
-      requestId,
-    });
-
-    logger.info("Resume parsed successfully and pushed to AI queue:", {
-      userId,
-      requestId
-    });
   },
-  {
-    connection,
-    concurrency: 4, // process 4 resumes simultaneously
-  }
+  { connection, concurrency: 1 },
 );

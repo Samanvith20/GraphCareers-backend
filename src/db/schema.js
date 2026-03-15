@@ -1,7 +1,8 @@
-import { boolean } from "drizzle-orm/gel-core";
+//import { boolean } from "drizzle-orm/gel-core";
 import {
   pgTable,
   text,
+  boolean,
   bigint,
   varchar,
   timestamp,
@@ -13,6 +14,12 @@ import {
 } from "drizzle-orm/pg-core";
 
 export const tierEnum = pgEnum("tier", ["free", "pro", "enterprise"]);
+export const resumeStatusEnum = pgEnum("resume_status", [
+  "pending",
+  "processing",
+  "completed",
+  "failed",
+]);
 export const users = pgTable("users", {
   id: uuid("id").primaryKey().defaultRandom(),
   name: varchar("name"),
@@ -47,7 +54,15 @@ export const aiUsageLogs = pgTable("ai_usage_logs", {
   totalTokens: integer("total_tokens").default(0),
 
   createdAt: timestamp("created_at").defaultNow(),
-});
+},
+  (table) => ({
+    userDateIdx: index("ai_usage_user_date_idx").on(
+      table.userId,
+      table.createdAt
+    ),
+  })
+
+);
 
 
 export const resumes = pgTable("resumes", {
@@ -58,34 +73,41 @@ export const resumes = pgTable("resumes", {
   pendingFileName :varchar("pending_filename"),
   fileName: varchar("file_name"),
   fileType: varchar("file_type"),
+  status: resumeStatusEnum("status").default("pending"),
+  errorMessage: varchar("error_message", { length: 255 }),
+
   text: text("text"),
   uploadedAt: timestamp("uploaded_at").defaultNow(),
   isResumeParsed: boolean("is_resume_parsed").default(false),
-});
+},
+(table) => ({
+    userIdx: index("resumes_user_idx").on(table.userId),
+  })
+);
 
 // Job table to store job details fetched from external sources need to update on every fetch
-export const jobMatches = pgTable("job_matches", {
-  id: uuid("id").primaryKey().defaultRandom(),
+// export const jobMatches = pgTable("job_matches", {
+//   id: uuid("id").primaryKey().defaultRandom(),
 
-  userId: uuid("user_id")
-    .references(() => users.id)
-    .notNull(),
+//   userId: uuid("user_id")
+//     .references(() => users.id)
+//     .notNull(),
 
-  jobId: uuid("job_id")
-    .references(() => jobs.id)
-    .notNull(),
+//   jobId: uuid("job_id")
+//     .references(() => jobs.id)
+//     .notNull(),
 
-  matchedCount: integer("matched_count"),
-  requiredCount: integer("required_count"),
-  score: doublePrecision("score"),
-  missingSkills: text("missing_skills").array(),
+//   matchedCount: integer("matched_count"),
+//   requiredCount: integer("required_count"),
+//   score: doublePrecision("score"),
+//   missingSkills: text("missing_skills").array(),
 
-  matchedAt: timestamp("matched_at").defaultNow(),
-}, (table) => ({
-  userIdx: index("job_matches_user_idx").on(table.userId),
-  jobIdx: index("job_matches_job_idx").on(table.jobId),
-  scoreIdx: index("job_matches_score_idx").on(table.score),
-}));
+//   matchedAt: timestamp("matched_at").defaultNow(),
+// }, (table) => ({
+//   userIdx: index("job_matches_user_idx").on(table.userId),
+//   jobIdx: index("job_matches_job_idx").on(table.jobId),
+//   scoreIdx: index("job_matches_score_idx").on(table.score),
+// }));
 
 
 export const jobStatusEnum = pgEnum("job_status", [
@@ -130,14 +152,14 @@ export const userJobApplications = pgTable(
 );
 
 
-export const jobs = pgTable("jobs", {
-  id: uuid("id").primaryKey().defaultRandom(),
- sourceJobId: varchar("source_job_id", { length: 255 }), // from scraper
-  title: text("title"),
-  employer: text("employer"),
-  location: text("location"),
-  url: text("url"),
-  skills: text("skills").array(), // extracted job skills
-  jobtrackingId: uuid("jobtracking_id").references(() => userJobApplications.id).notNull(),
-  createdAt: timestamp("created_at").defaultNow(),
-});
+// export const jobs = pgTable("jobs", {
+//   id: uuid("id").primaryKey().defaultRandom(),
+//  sourceJobId: varchar("source_job_id", { length: 255 }), // from scraper
+//   title: text("title"),
+//   employer: text("employer"),
+//   location: text("location"),
+//   url: text("url"),
+//   skills: text("skills").array(), // extracted job skills
+//   jobtrackingId: uuid("jobtracking_id").references(() => userJobApplications.id).notNull(),
+//   createdAt: timestamp("created_at").defaultNow(),
+// });
