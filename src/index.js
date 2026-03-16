@@ -18,6 +18,9 @@ dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT ? Number(process.env.PORT) : 3000;
+// setInterval(() => {
+//   console.log("event loop alive", Date.now())
+// }, 1000)
 
 const allowedOrigins = process.env.FRONTEND_ORIGINS
   ?.split(",")
@@ -25,7 +28,14 @@ const allowedOrigins = process.env.FRONTEND_ORIGINS
 
 /* ---------------- Core Middlewares ---------------- */
 
-app.use(express.json());
+app.use((req, res, next) => {
+  const contentType = req.headers['content-type'] || '';
+  if (contentType.startsWith('multipart/form-data')) {
+    return next(); // skip — let multer handle it on the route
+  }
+  express.json({ limit: '10mb' })(req, res, next);
+});
+app.use(express.urlencoded({ limit: '10mb', extended: true })); // ← add this too
 app.use(cookieParser());
 
 app.use(

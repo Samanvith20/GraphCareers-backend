@@ -69,7 +69,8 @@ export const resumes = pgTable("resumes", {
   id: uuid("id").primaryKey().defaultRandom(),
   userId: uuid("user_id")
     .references(() => users.id)
-    .notNull(),
+    .notNull()
+    .unique(),
   pendingFileName :varchar("pending_filename"),
   fileName: varchar("file_name"),
   fileType: varchar("file_type"),

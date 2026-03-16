@@ -20,14 +20,6 @@ new Worker(
     logger.info("Parsing resume for user", { userId, requestId });
 
     try {
-      await db
-        .update(resumes)
-        .set({
-          pendingFileName: fileName,
-          status: "processing",
-        })
-        .where(eq(resumes.userId, userId));
-
       const buffer = await fs.readFile(filePath);
 
       let text = "";
@@ -45,38 +37,57 @@ new Worker(
       text = text.trim().replace(/\s+/g, " ");
 
       if (!text || text.length < 50) {
-        throw new Error("Resume parsing failed");
+        throw new Error("Resume text extraction failed or too short");
       }
 
-      // await db.update(resumes)
-      //   .set({
-      //     text,
-      //     fileName,
-      //     status: "completed",
-      //     isResumeParsed: true,
-      //     errorMessage: null
-      //   })
-      //   .where(eq(resumes.userId, userId));
+      // ✅ One query — creates row if missing, updates if exists
+      await db.insert(resumes)
+        .values({
+          userId,
+          text,
+          pendingFileName: fileName,
+          status: "processing",
+          isResumeParsed: false,
+          errorMessage: null,
+        })
+        .onConflictDoUpdate({
+          target: resumes.userId,
+          set: {
+            text,
+            pendingFileName: fileName,
+            status: "processing",
+            errorMessage: null,
+          }
+        });
 
       logger.info("Pushing job to AI queue", { userId, requestId });
 
-      await resumeQueue.add("resumeAI", {
-        userId,
-        requestId,
-      });
+      await resumeQueue.add("resumeAI", { userId, requestId });
 
-      logger.info("Job pushed to AI queue", {
-        userId,
-        requestId,
-      });
+      logger.info("Job pushed to AI queue", { userId, requestId });
+
     } catch (err) {
-      await db
-        .update(resumes)
-        .set({
-          status: "failed",
-          errorMessage: err.message,
-        })
-        .where(eq(resumes.userId, userId));
+      // ✅ Also upsert here — catch block same problem if row doesn't exist
+      try {
+        await db.insert(resumes)
+          .values({
+            userId,
+            status: "failed",
+            errorMessage: err.message,
+          })
+          .onConflictDoUpdate({
+            target: resumes.userId,
+            set: {
+              status: "failed",
+              errorMessage: err.message,
+            }
+          });
+      } catch (dbErr) {
+        logger.error("Failed to update failed status", {
+          userId,
+          dbError: dbErr.message
+        });
+      }
 
       logger.error("Resume parsing failed", {
         error: err.message,
@@ -87,9 +98,10 @@ new Worker(
       try {
         await fs.unlink(filePath);
       } catch {
-        console.warn("already deleted file", filePath);
+        console.warn("Already deleted:", filePath);
       }
     }
   },
-  { connection, concurrency: 1 },
+  { connection, concurrency: 4 },
 );
+

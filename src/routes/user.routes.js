@@ -19,7 +19,10 @@ import {
 } from "../middleware/rateLimiters/user.limiters.js";
 
 const router = Router();
-const upload = multer({ storage: multer.memoryStorage() });
+const upload = multer({ 
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 500 * 1024 } 
+ });
 const userKey = (req) => `user:${req.userId}`;
 
 router.get(

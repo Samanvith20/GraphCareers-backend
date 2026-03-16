@@ -305,18 +305,7 @@ export async function parseResumeWithAIService(userId, requestId) {
     if (!user) {
       throw new Error("User not found");
     }
-
-    // 2️⃣ Get resume
-    const resume = await db.query.resumes.findFirst({
-      where: eq(resumes.userId, userId),
-    });
-
-    if (!resume?.text) {
-      throw new Error("Resume text not found. Upload resume first.");
-    }
-
-    // 3️⃣ Check usage limit
-    const last24h = new Date(Date.now() - 24 * 60 * 60 * 1000);
+     const last24h = new Date(Date.now() - 24 * 60 * 60 * 1000);
 
     const usage = await db
       .select({
@@ -330,6 +319,18 @@ export async function parseResumeWithAIService(userId, requestId) {
     if (Number(usage[0].total) >= TIER_LIMITS[user.tier]) {
       throw new Error("Daily AI usage limit reached");
     }
+
+    // 2️⃣ Get resume
+    const resume = await db.query.resumes.findFirst({
+      where: eq(resumes.userId, userId),
+    });
+
+    if (!resume?.text) {
+      throw new Error("Resume text not found. Upload resume first.");
+    }
+
+    
+   
 
     // 4️⃣ Call AI
     let object;
@@ -493,11 +494,24 @@ ${resume.text}
 
     } catch (err) {
 
-      if (err?.message?.includes("credits") || err?.statusCode === 402) {
-        throw new Error("AI service temporarily unavailable");
-      }
+       logger.error("Resume AI parsing failed", { userId, requestId, error: err.message });
 
-      throw new Error("AI resume parsing failed");
+  try {
+    await db.update(resumes)
+      .set({
+        status: "failed",
+        errorMessage: err.message || "Unknown error"
+      })
+      .where(eq(resumes.userId, userId));
+  } catch (dbErr) {
+    logger.error("CRITICAL: Failed to update resume status to failed", {
+      userId,
+      dbError: dbErr.message
+    });
+  }
+
+  throw err;
+
     }
 
     if (!object) {
@@ -555,19 +569,21 @@ ${resume.text}
 
   } catch (err) {
 
-    logger.error("Resume AI parsing failed", {
-      userId,
-      requestId,
-      error: err.message
-    });
-
-    // update status so frontend stops polling
+       // update status so frontend stops polling
     await db.update(resumes)
       .set({
         status: "failed",
         errorMessage: err.message || "Unknown error"
       })
       .where(eq(resumes.userId, userId));
+
+    logger.error("Resume AI parsing failed", {
+      userId,
+      requestId,
+      error: err.message
+    });
+
+ 
 
     throw err;
   }
