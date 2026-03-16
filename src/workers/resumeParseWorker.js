@@ -60,7 +60,10 @@ new Worker(
           }
         });
 
-      logger.info("Pushing job to AI queue", { userId, requestId });
+      logger.info("Pushing job to AI queue", { userId, requestId },
+          { jobId: userId }
+
+      );
 
       await resumeQueue.add("resumeAI", { userId, requestId });
 
@@ -102,6 +105,6 @@ new Worker(
       }
     }
   },
-  { connection, concurrency: 4 },
+  { connection, concurrency: 2},
 );
 

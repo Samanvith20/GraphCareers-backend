@@ -9,6 +9,7 @@ import { resumeParseQueue } from "../queue/resumeParseQueue.js";
 import fs from "fs/promises";
 import path from "path";
 import logger from "../logger/logger.js";
+import { connection } from "../queue/connection.js";
 
 const MAX_SIZE = 500 * 1024;
 
@@ -249,6 +250,27 @@ export async function uploadResumeService(userId, file, requestId) {
   if (file.size > MAX_SIZE) {
     throw { status: 413, message: "Resume must be under 500KB" };
   }
+   const user = await db.query.users.findFirst({
+      where: eq(users.id, userId),
+    });
+
+    if (!user) {
+      throw new Error("User not found");
+    }
+  const last24h = new Date(Date.now() - 24 * 60 * 60 * 1000);
+
+const usage = await db
+  .select({
+    total: sql`COALESCE(SUM(${aiUsageLogs.totalTokens}),0)`
+  })
+  .from(aiUsageLogs)
+  .where(
+    and(eq(aiUsageLogs.userId, userId), gt(aiUsageLogs.createdAt, last24h))
+  );
+
+if (Number(usage[0].total) >= TIER_LIMITS[user.tier]) {
+  throw { status: 429, message: "Daily AI usage limit reached" };
+}
 
   const fileName = file.originalname.toLowerCase();
   const safeName = fileName.replace(/[^a-z0-9.\-_]/gi, "_");
@@ -280,6 +302,7 @@ console.time("writedisk")
       requestId
     },
     {
+          jobId: userId,
       removeOnComplete: true,
       removeOnFail: true
     }
@@ -289,6 +312,7 @@ console.time("writedisk")
 }
 
 export async function parseResumeWithAIService(userId, requestId) {
+ 
 
   try {
 
@@ -298,27 +322,27 @@ export async function parseResumeWithAIService(userId, requestId) {
     });
 
     // 1️⃣ Get user
-    const user = await db.query.users.findFirst({
-      where: eq(users.id, userId),
-    });
+    // const user = await db.query.users.findFirst({
+    //   where: eq(users.id, userId),
+    // });
 
-    if (!user) {
-      throw new Error("User not found");
-    }
-     const last24h = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    // if (!user) {
+    //   throw new Error("User not found");
+    // }
+    //  const last24h = new Date(Date.now() - 24 * 60 * 60 * 1000);
 
-    const usage = await db
-      .select({
-        total: sql`COALESCE(SUM(${aiUsageLogs.totalTokens}),0)`,
-      })
-      .from(aiUsageLogs)
-      .where(
-        and(eq(aiUsageLogs.userId, userId), gt(aiUsageLogs.createdAt, last24h)),
-      );
+    // const usage = await db
+    //   .select({
+    //     total: sql`COALESCE(SUM(${aiUsageLogs.totalTokens}),0)`,
+    //   })
+    //   .from(aiUsageLogs)
+    //   .where(
+    //     and(eq(aiUsageLogs.userId, userId), gt(aiUsageLogs.createdAt, last24h)),
+    //   );
 
-    if (Number(usage[0].total) >= TIER_LIMITS[user.tier]) {
-      throw new Error("Daily AI usage limit reached");
-    }
+    // if (Number(usage[0].total) >= TIER_LIMITS[user.tier]) {
+    //   throw new Error("Daily AI usage limit reached");
+    // }
 
     // 2️⃣ Get resume
     const resume = await db.query.resumes.findFirst({

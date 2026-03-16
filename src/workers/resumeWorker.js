@@ -26,6 +26,6 @@ new Worker(
 
   },
   { connection,
-    concurrency:4
+    concurrency:2
    }
 );
