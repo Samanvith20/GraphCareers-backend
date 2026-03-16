@@ -6,5 +6,5 @@ export const careerProgressionLimiter = new RateLimiterRedis({
   keyPrefix: "rl:user:career-progression",
   points: 3,        // 3 requests
   duration: 60,     // per minute
-  execEvenly: true, // ✅ paced (no bursts)
+  //execEvenly: true, // ✅ paced (no bursts)
 });

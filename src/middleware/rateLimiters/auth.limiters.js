@@ -6,7 +6,7 @@ import redis from "../../config/redis.js";
 const baseConfig = {
   storeClient: redis,
 
-  execEvenly: true, // sliding window
+  //execEvenly: true, // sliding window
 };
 
 export const loginLimiter = new RateLimiterRedis({
