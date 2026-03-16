@@ -12,6 +12,8 @@ services:
       - redis
       - postgres
     restart: unless-stopped
+    volumes:
+      - resume_uploads:/app/uploads/resumes
 
   redis:
     image: redis:7-alpine
@@ -24,6 +26,7 @@ services:
       - ${ENV_FILE}
     volumes:
       - postgres-data:/var/lib/postgresql/data
+    
 
   resume-worker:
     build: .
@@ -34,6 +37,8 @@ services:
       - redis
       - postgres
     restart: unless-stopped
+    volumes:
+      - resume_uploads:/app/uploads/resumes
 
   resume-parse-worker:
     build: .
@@ -44,6 +49,8 @@ services:
       - redis
       - postgres
     restart: unless-stopped
+    volumes:
+      - resume_uploads:/app/uploads/resumes
 
   prometheus:
     image: prom/prometheus
