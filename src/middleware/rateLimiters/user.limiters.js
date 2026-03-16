@@ -25,6 +25,6 @@ export const resumeUploadLimiter = new RateLimiterRedis({
   keyPrefix: "rl:user:resume-upload",
   points: 5,
   duration: 600,
-  execEvenly: true, // ✅ ADD THIS
+  //execEvenly: true, // ✅ ADD THIS
 });
 
