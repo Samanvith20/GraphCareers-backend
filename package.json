@@ -15,6 +15,7 @@
   "packageManager": "pnpm@10.19.0",
   "dependencies": {
     "@ai-sdk/openai": "^3.0.30",
+    "@sentry/node": "^10.43.0",
     "ai": "^6.0.97",
     "bcrypt": "^6.0.0",
     "bullmq": "^5.71.0",

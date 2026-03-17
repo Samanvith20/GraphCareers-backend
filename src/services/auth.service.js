@@ -5,6 +5,8 @@ import nodemailer from "nodemailer";
 import { randomUUID } from "crypto";
 import { and, eq, gt } from "drizzle-orm";
 import { OAuth2Client } from "google-auth-library";
+import { AppError } from "../lib/AppError.js";
+
 
 
 const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
@@ -19,23 +21,19 @@ export async function loginService(email, password) {
     .limit(1);
 
   if (!user.length) {
-    return { success: false, error: "No account found with this email." };
+    throw new AppError("User not found", 404);
   }
 
 
   const match = await bcrypt.compare(password, user[0].password);
   if (!match) {
-    return { success: false, error: "Incorrect password." };
+    throw new AppError("Invalid credentials", 401);
   }
-
-  return {
-    success: true,
-    user: {
-      id: user[0].id,
-      name: user[0].name,
-      email: user[0].email,
-    },
-  };
+return {
+  id: user[0].id,
+  name: user[0].name,
+  email: user[0].email,
+};
 }
 
 export async function signupService(name, email, password) {
@@ -48,10 +46,7 @@ export async function signupService(name, email, password) {
     .limit(1);
 
   if (exists.length) {
-    return {
-      success: false,
-      error: "An account with this email already exists.",
-    };
+   throw new AppError("User already exists", 409);
   }
 
   const hash = await bcrypt.hash(password, 10);
@@ -62,14 +57,13 @@ export async function signupService(name, email, password) {
     .returning();
 
   return {
-    success: true,
-    user: {
+  
       id: user.id,
       name: user.name,
       email: user.email,
-    },
+    }
   };
-}
+
 
 
 
@@ -113,12 +107,11 @@ export async function googleAuthService(token) {
   }
 
   return {
-    success: true,
-    user: {
+    
       id: user.id,
       name: user.name,
       email: user.email,
-    },
+    
   };
 }
 
@@ -132,7 +125,7 @@ export async function forgotPasswordService(email) {
     .limit(1);
 
   if (!userArr.length) {
-    return { success: false, error: "No account found with this email." };
+    throw new AppError("User not found", 404);
   }
 
   const user = userArr[0];
@@ -161,7 +154,7 @@ export async function forgotPasswordService(email) {
       html: `<p>Hello ${user.name || "User"},</p><p>We received a request to reset your password for your <b>GraphCareers</b> account.</p><p><a href="${process.env.FRONTEND_URL}/reset-password?token=${token}">Click here to reset your password</a></p><p>If you did not request a password reset, please ignore this email.</p><p>This link will expire in 10 minutes for your security.</p><p>Best regards,<br/>The GraphCareers Team</p>`,
     });
 
-  return { success: true };
+  return true;
 }
 
 export async function profileService(id){
@@ -176,10 +169,10 @@ export async function profileService(id){
     .limit(1);
 
   if (!user.length) {
-    return { success: false, error: "User not found" };
+    throw new AppError("User not found", 404);
   }
 
-  return { success: true, user: user[0] };
+  return user[0];
 }
 
 
@@ -199,10 +192,7 @@ export async function resetPasswordService(token, password) {
     .limit(1);
 
   if (!userArr.length) {
-    return {
-      success: false,
-      error: "Reset link is invalid or has expired.",
-    };
+    throw new AppError("Invalid or expired token", 400);
   }
 
   const user = userArr[0];
@@ -217,5 +207,5 @@ export async function resetPasswordService(token, password) {
     })
     .where(eq(users.id, user.id));
 
-  return { success: true };
+  return true;
 }

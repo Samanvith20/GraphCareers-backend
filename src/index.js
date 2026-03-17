@@ -13,6 +13,7 @@ import careerprogressionRoutes from "./routes/careerprogression.routes.js";
 import { checkRedisHealth } from "./config/redis.js";
 import { httpRequestDuration, register } from "./lib/metrices.js";
 import logger from "./logger/logger.js";
+import Sentry from "./lib/sentry.js";
 
 dotenv.config();
 
@@ -20,7 +21,7 @@ const app = express();
 const PORT = process.env.PORT ? Number(process.env.PORT) : 3000;
 // setInterval(() => {
 //   console.log("event loop alive", Date.now())
-// }, 1000)
+// }, 1000
 
 const allowedOrigins = process.env.FRONTEND_ORIGINS
   ?.split(",")
@@ -60,6 +61,14 @@ app.use((req, res, next) => {
 
   req.requestId = requestId;
   res.setHeader("X-Request-ID", requestId);
+  Sentry.setContext("request", {
+    requestId,
+    method: req.method,
+    url: req.url,
+  });
+
+  // OPTIONAL: tag (better filtering)
+  Sentry.setTag("requestId", requestId);
 
   logger.http("Incoming request", {
     requestId,
@@ -120,18 +129,30 @@ app.get("/", (req, res) => {
 // Catch unexpected failures.
 
 app.use((err, req, res, next) => {
+  const status = err.status || 500;
+
+  // send to sentry
+  Sentry.captureException(err);
 
   logger.error("Unhandled error", {
     requestId: req.requestId,
     message: err.message,
-    stack: err.stack
+    stack: err.stack,
   });
 
-  res.status(err.status || 500).json({
-    error: err.message || "Internal server error",
-    requestId: req.requestId
-  });
+  // ✅ known errors (safe)
+  if (err.isOperational) {
+    return res.status(status).json({
+      error: err.message,
+      requestId: req.requestId,
+    });
+  }
 
+  // ❌ unknown errors (hide details)
+  return res.status(500).json({
+    error: "Something went wrong",
+    requestId: req.requestId,
+  });
 });
 
 /* ---------------- Server Bootstrap ---------------- */
@@ -159,10 +180,12 @@ startServer();
 /* ---------------- Process Errors ---------------- */
 
 process.on("unhandledRejection", (reason) => {
+  Sentry.captureException(reason);
   logger.error("Unhandled Rejection", reason);
 });
 
 process.on("uncaughtException", (err) => {
+  Sentry.captureException(err);
   logger.error("Uncaught Exception", err);
   process.exit(1);
 });

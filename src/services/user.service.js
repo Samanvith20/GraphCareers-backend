@@ -9,7 +9,8 @@ import { resumeParseQueue } from "../queue/resumeParseQueue.js";
 import fs from "fs/promises";
 import path from "path";
 import logger from "../logger/logger.js";
-import { connection } from "../queue/connection.js";
+import { AppError } from "../lib/AppError.js";
+
 
 const MAX_SIZE = 500 * 1024;
 
@@ -20,6 +21,9 @@ const TIER_LIMITS = {
 };
 
 export async function getUserProfileService(userId) {
+  if(!userId){
+    throw new AppError("UserId is required", 404);
+  }
   const result = await db
     .select({
       id: users.id,
@@ -38,10 +42,7 @@ export async function getUserProfileService(userId) {
     .limit(1);
 
   if (!result.length) {
-    return {
-      success: false,
-      error: "User not found",
-    };
+    throw new AppError("User not found", 404);
   }
   const resume = await db.query.resumes.findFirst({
   where: eq(resumes.userId, userId),
@@ -66,7 +67,6 @@ export async function getUserProfileService(userId) {
 
   // 4️⃣ Final response
   return {
-    success: true,
     profile: result[0],
         resume: resume
   ? {
@@ -90,36 +90,16 @@ export async function getUserProfileService(userId) {
   
 }
 
-export async function getUserJobApplicationsService(userId) {
-  const jobs = await db
-    .select({
-      id: userJobApplications.id,
-      jobUrl: userJobApplications.jobUrl,
-      jobTitle: userJobApplications.jobTitle,
-      company: userJobApplications.company,
-      source: userJobApplications.source,
-      status: userJobApplications.status,
-      notes: userJobApplications.notes,
-      createdAt: userJobApplications.createdAt,
-      statusUpdatedAt: userJobApplications.statusUpdatedAt,
-    })
-    .from(userJobApplications)
-    .where(eq(userJobApplications.userId, userId))
-    .orderBy(desc(userJobApplications.createdAt));
 
-  return jobs;
-}
 
 export async function updateUserProfileService(userId, data) {
+
   const updateData = { ...data };
 
   // ✅ Only validate if skills is present
   if ("skills" in data) {
     if (!Array.isArray(data.skills)) {
-      throw {
-        status: 400,
-        message: "Invalid skills format..",
-      };
+     throw new AppError("Invalid skills format", 400);
     }
 
     // ✅ REPLACE + dedupe
@@ -140,122 +120,22 @@ export async function updateUserProfileService(userId, data) {
 
 const uploadDir = path.join(process.cwd(), "uploads/resumes");
 
-// export async function uploadResumeService(userId, file, requestId) {
-// //console.log("api satrted time", Date.now().getTime());
-//   if (!file) {
-//     throw { status: 400, message: "No resume uploaded" };
-//   }
-// if (file.size > MAX_SIZE) {
-//   throw { status: 413, message: "Resume must be under 500KB" };
-// }
-
-// const user = await db.query.users.findFirst({
-//   where: eq(users.id, userId),
-// });
-
-// if (!user) {
-//   throw { status: 404, message: "User not found" };
-// }
-
-// const last24h = new Date(Date.now() - 24 * 60 * 60 * 1000);
-
-// console.time("get usage");
-// const usage = await db
-//   .select({
-//     total: sql`COALESCE(SUM(${aiUsageLogs.totalTokens}),0)`,
-//   })
-//   .from(aiUsageLogs)
-//   .where(
-//     and(eq(aiUsageLogs.userId, userId), gt(aiUsageLogs.createdAt, last24h)),
-//   );
-//   console.timeEnd("get usage");
-
-// const totalUsage = Number(usage[0].total);
-// logger.info("totalUsage", totalUsage);
-
-// if (totalUsage >= TIER_LIMITS[user.tier]) {
-//   throw {
-//     status: 429,
-//     message: "Daily limit reached for your plan",
-//   };
-// }
-
-
-// const fileName = file.originalname.toLowerCase();
-// const safeName = fileName.replace(/[^a-z0-9.\-_]/gi, "_");
-
-// const isPDF = safeName.endsWith(".pdf");
-// const isDOCX = safeName.endsWith(".docx");
-
-// if (!isPDF && !isDOCX) {
-//   throw { status: 415, message: "Only PDF or DOCX supported" };
-// }
-
-// await fs.mkdir(uploadDir, { recursive: true });
-
-// const uniqueName = `${userId}_${Date.now()}_${safeName}`;
-// const filePath = path.join(uploadDir, uniqueName);
-
-// await fs.writeFile(filePath, file.buffer);
-
-// const existingResume = await db.query.resumes.findFirst({
-//   where: eq(resumes.userId, userId)
-// });
-
-// if (existingResume) {
-//   await db.update(resumes)
-//     .set({
-//       pendingFileName: fileName,
-//       fileType: isPDF ? "pdf" : "docx",
-//       isResumeParsed: false
-//     })
-//     .where(eq(resumes.userId, userId));
-
-// } else {
-//   await db.insert(resumes).values({
-//     userId,
-//     pendingFileName: fileName,
-//     fileType: isPDF ? "pdf" : "docx",
-//     isResumeParsed: false
-//   });
-// }
-
-// await resumeParseQueue.add(
-//   "parseResume",
-//   {
-//     userId,
-//     filePath,
-//     fileType: isPDF ? "pdf" : "docx",
-//     requestId
-//   },
-//   {
-//     attempts: 3,
-//     removeOnComplete: true
-//   }
-// );
-// logger.info("parse resume queue added",{
-//   requestId,
-//   userId
-// });
-
-//   return { status: "processing" };
-// }
 
 export async function uploadResumeService(userId, file, requestId) {
-  console.log("api has been called",Date.now())
+  //console.log("api has been called",Date.now())
   if (!file) {
-    throw { status: 400, message: "No resume uploaded" };
+    throw new AppError("No File uploaded",404)
   }
 
   if (file.size > MAX_SIZE) {
-    throw { status: 413, message: "Resume must be under 500KB" };
+    throw new AppError("Resume must be under 500Kb",400)
   }
    const user = await db.query.users.findFirst({
       where: eq(users.id, userId),
     });
 
     if (!user) {
-      throw new Error("User not found");
+      throw new AppError("user not found",404)
     }
   const last24h = new Date(Date.now() - 24 * 60 * 60 * 1000);
 
@@ -268,8 +148,8 @@ const usage = await db
     and(eq(aiUsageLogs.userId, userId), gt(aiUsageLogs.createdAt, last24h))
   );
 
-if (Number(usage[0].total) >= TIER_LIMITS[user.tier]) {
-  throw { status: 429, message: "Daily AI usage limit reached" };
+if (Number(usage[0].total) >= TIER_LIMITS[user.tier] ?? TIER_LIMITS.free) {
+  throw new AppError( "Daily limit reached for your plan", 429);
 }
 
   const fileName = file.originalname.toLowerCase();
@@ -279,16 +159,16 @@ if (Number(usage[0].total) >= TIER_LIMITS[user.tier]) {
   const isDOCX = safeName.endsWith(".docx");
 
   if (!isPDF && !isDOCX) {
-    throw { status: 415, message: "Only PDF or DOCX supported" };
+    throw  new AppError( "Only PDF or DOCX supported",400 )
   }
 
   await fs.mkdir(uploadDir, { recursive: true });
 
   const uniqueName = `${userId}_${Date.now()}_${safeName}`;
   const filePath = path.join(uploadDir, uniqueName);
-console.time("writedisk")
+
   await fs.writeFile(filePath, file.buffer);
-  console.timeEnd("writedisk")
+  
 
   
   // push job immediately
@@ -321,28 +201,7 @@ export async function parseResumeWithAIService(userId, requestId) {
       requestId
     });
 
-    // 1️⃣ Get user
-    // const user = await db.query.users.findFirst({
-    //   where: eq(users.id, userId),
-    // });
 
-    // if (!user) {
-    //   throw new Error("User not found");
-    // }
-    //  const last24h = new Date(Date.now() - 24 * 60 * 60 * 1000);
-
-    // const usage = await db
-    //   .select({
-    //     total: sql`COALESCE(SUM(${aiUsageLogs.totalTokens}),0)`,
-    //   })
-    //   .from(aiUsageLogs)
-    //   .where(
-    //     and(eq(aiUsageLogs.userId, userId), gt(aiUsageLogs.createdAt, last24h)),
-    //   );
-
-    // if (Number(usage[0].total) >= TIER_LIMITS[user.tier]) {
-    //   throw new Error("Daily AI usage limit reached");
-    // }
 
     // 2️⃣ Get resume
     const resume = await db.query.resumes.findFirst({

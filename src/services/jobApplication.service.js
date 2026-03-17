@@ -31,7 +31,7 @@ export const upsertJobApplicationService = async ({
       })
       .where(eq(userJobApplications.id, existing.id));
 
-    return { updated: true };
+     return { type: "updated" };
   }
 
   await db.insert(userJobApplications).values({
@@ -44,7 +44,7 @@ export const upsertJobApplicationService = async ({
     notes,
   });
 
-  return { created: true };
+   return { type: "created" };
 };
 
 /**

@@ -5,7 +5,6 @@ import { validate } from "../middleware/validate.js";
 import { authMiddleware } from "../middleware/auth.js";
 import {
   getUserdetails,
-  getuserJobs,
   updateUserProfile,
   uploadUserResume,
 } from "../controllers/user.controller.js";
@@ -31,12 +30,7 @@ router.get(
   applyRateLimit(userReadLimiter, userKey),
   getUserdetails,
 );
-router.get(
-  "/job-applications",
-  authMiddleware,
-  applyRateLimit(userReadLimiter, userKey),
-  getuserJobs,
-);
+
 router.patch(
   "/update",
   

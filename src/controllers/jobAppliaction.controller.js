@@ -8,30 +8,37 @@ import {
  * POST /api/job-applications
  * Track or update a job application
  */
-export const upsertJobApplicationController = async (req, res) => {
+import { AppError } from "../lib/AppError.js";
+
+export const upsertJobApplicationController = async (req, res, next) => {
   try {
     const userId = req.userId;
 
     if (!userId) {
-      return res.status(401).json({ error: "Unauthorized" });
+      return next(new AppError("Unauthorized", 401));
     }
 
-    await upsertJobApplicationService({
+    const result = await upsertJobApplicationService({
       userId,
       ...req.body,
     });
-    logger.info("update-userjobapplication success", {
+
+    logger.info("Job application upsert success", {
       requestId: req.requestId,
-      userId: req.userId,
+      userId,
+      jobUrl: req.body.jobUrl,
     });
-    return res.json({ success: true });
+
+    return res.json(result);
+
   } catch (err) {
-    logger.error("upsertJobApplicationController error:", {
+    logger.error("upsertJobApplicationController error", {
       requestId: req.requestId,
       error: err.message,
       stack: err.stack,
     });
-    return res.status(500).json({ error: "Internal server error" });
+
+    next(err);
   }
 };
 
@@ -39,26 +46,30 @@ export const upsertJobApplicationController = async (req, res) => {
  * GET /api/job-applications
  * Get tracked jobs for logged-in user
  */
-export const getUserJobApplicationsController = async (req, res) => {
+export const getUserJobApplicationsController = async (req, res, next) => {
   try {
     const userId = req.userId;
 
     if (!userId) {
-      return res.status(401).json({ error: "Unauthorized" });
+      return next(new AppError("Unauthorized", 401));
     }
 
     const jobs = await getUserJobApplicationsService(userId);
-    logger.info("userjobapplication success", {
+
+    logger.info("User job applications fetched", {
       requestId: req.requestId,
-      userId: req.userId,
+      userId,
     });
+
     return res.json({ jobs });
+
   } catch (err) {
-    logger.error("getUserJobApplicationsController error:", {
+    logger.error("getUserJobApplicationsController error", {
       requestId: req.requestId,
       error: err.message,
       stack: err.stack,
     });
-    return res.status(500).json({ error: "Internal server error" });
+
+    next(err);
   }
 };

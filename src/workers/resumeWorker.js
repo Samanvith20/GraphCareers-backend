@@ -3,15 +3,20 @@ import { Worker } from "bullmq";
 import { parseResumeWithAIService } from "../services/user.service.js";
 import { connection } from "../queue/connection.js";
 import logger from "../logger/logger.js";
+import Sentry from "../lib/sentry.js";
 
 logger.info("Resume worker started");
 
-new Worker(
+const worker=new Worker(
   "resumeParseQueue",
   async (job) => {
 
     const { userId, requestId } = job.data;
-
+   Sentry.setTag("requestId", requestId);
+    Sentry.setContext("job", {
+      jobId: job.id,
+      userId,
+    });
     logger.info("Resume parsing started", {
       requestId,
       userId
@@ -29,3 +34,12 @@ new Worker(
     concurrency:2
    }
 );
+worker.on("failed", (job, err) => {
+  Sentry.captureException(err, {
+    extra: {
+      jobId: job.id,
+      userId: job.data.userId,
+      requestId: job.data.requestId, // 👈 pass this when adding job
+    },
+  });
+});

@@ -1,17 +1,15 @@
+import { AppError } from "../lib/AppError.js";
 import logger from "../logger/logger.js";
 import {
-  getUserJobApplicationsService,
   getUserProfileService,
   updateUserProfileService,
   uploadResumeService,
 } from "../services/user.service.js";
 
-export async function getUserdetails(req, res) {
+export async function getUserdetails(req, res, next) {
   try {
     const result = await getUserProfileService(req.userId);
-    if (!result.success) {
-      return res.status(401).json({ error: result.error });
-    }
+   
     logger.info("user profile fetched success", {
       requestId: req.requestId,
     });
@@ -26,20 +24,13 @@ export async function getUserdetails(req, res) {
       error: err.message,
       stack: err.stack,
     });
-    return res.status(500).json({ error: "Internal server error" });
-  }
-}
-export async function getuserJobs(req, res) {
-  try {
-    const jobs = await getUserJobApplicationsService(req.userId);
-    return res.json({ jobs });
-  } catch (err) {
-    console.error("PROFILE JOBS CONTROLLER ERROR 👉", err);
-    return res.status(500).json({ error: "Internal server error" });
+    next(err);
+    //return res.status(500).json({ error: "Internal server error" });
   }
 }
 
-export const updateUserProfile = async (req, res) => {
+
+export const updateUserProfile = async (req, res,next) => {
   try {
     const userId = req.userId;
 
@@ -49,9 +40,7 @@ export const updateUserProfile = async (req, res) => {
     );
 
     if (Object.keys(updateData).length === 0) {
-      return res.status(400).json({
-        message: "No fields provided for update",
-      });
+     throw new AppError("No Fields provided for update",400)
     }
 
     const updatedUser = await updateUserProfileService(userId, updateData);
@@ -68,11 +57,11 @@ export const updateUserProfile = async (req, res) => {
       error: err.message,
       stack: err.stack,
     });
-    return res.status(500).json({ error: "Internal server error" });
+   next(err);
   }
 };
 
-export async function uploadUserResume(req, res) {
+export async function uploadUserResume(req, res,next) {
   try {
     const userId = req.userId;
     const file = req.file;
@@ -83,44 +72,18 @@ export async function uploadUserResume(req, res) {
       requestId: req.requestId,
       userId: userId,
     });
-    return res.json({
-      success: true,
-      message: "Resume uploaded & text extracted",
-      textLength: result.textLength,
-    });
+     return res.json({
+  message: "Resume uploaded & processing started",
+  status: result.status,
+});
   } catch (err) {
     logger.error("RESUME UPLOAD ERROR ", {
       requestId: req.requestId,
       error: err.message,
       stack: err.stack,
     });
-    return res.status(err.status || 500).json({
-      error: err.message || "Failed to upload resume",
-    });
+   next(err);
   }
 }
 
-// export async function parseUserResumeWithAI(req, res) {
-//   try {
-//     const userId = req.userId
 
-//     const data = await parseResumeWithAIService(userId);
-//       logger.info("resume parsing with ai compeletd successfully",{
-//               requestId:req.requestId
-
-//       })
-//     return res.json({
-//       success: true,
-//       data,
-//     });
-//   } catch (err) {
-//     logger.error("RESUME AI PARSE ERROR ", {
-//       requestId: req.requestId,
-//       error: err.message,
-//       stack: err.stack,
-//     });
-//     return res.status(err.status || 500).json({
-//       error: err.message || "Failed to parse resume",
-//     });
-//   }
-// }

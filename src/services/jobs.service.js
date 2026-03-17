@@ -5,6 +5,7 @@ import { getNeo4jSession } from "../db/neo4j/session.js";
 import { normalizeSkill, SKILL_ALIASES, toNumber } from "../lib/utils.js";
 import { db } from "../db/index.js";
 import { users } from "../db/schema.js";
+import { AppError } from "../lib/AppError.js";
 
 // lib/skillAliases.js
 
@@ -16,21 +17,21 @@ export async function getMatchedJobsService({
   maxExperience = null,
 }) {
   if (!userId) {
-    throw new Error("Unauthorized");
+    throw new AppError("User ID is required", 400);
   }
 
   const user = await db.query.users.findFirst({
     where: eq(users.id, userId),
   });
+  if (!user) {
+  throw new AppError("User not found", 404);
+}
 
   const userExperience = user?.experience || 0;
   const experienceYears = userExperience / 12;
 
   if (!user?.skills?.length) {
-    return {
-      jobs: [],
-      message: "Add your skills to see matching jobs",
-    };
+    throw new AppError("User has no skills", 400);
   }
 
   const userSkills = user.skills.map(normalizeSkill).filter(Boolean);

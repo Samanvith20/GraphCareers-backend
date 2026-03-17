@@ -11,12 +11,17 @@ import { eq } from "drizzle-orm";
 import { resumeQueue } from "../queue/resumeQueue.js";
 import logger from "../logger/logger.js";
 import fs from "fs/promises";
+import Sentry from "../lib/sentry.js";
 
-new Worker(
+const worker=new Worker(
   "resume-parse",
   async (job) => {
     const { userId, fileType, filePath, fileName, requestId } = job.data;
-
+Sentry.setTag("requestId", requestId);
+    Sentry.setContext("job", {
+      jobId: job.id,
+      userId,
+    });
     logger.info("Parsing resume for user", { userId, requestId });
 
     try {
@@ -106,5 +111,16 @@ new Worker(
     }
   },
   { connection, concurrency: 2},
+
 );
+worker.on("failed", (job, err) => {
+  Sentry.captureException(err, {
+    extra: {
+      jobId: job.id,
+      userId: job.data.userId,
+      requestId: job.data.requestId, // 👈 pass this when adding job
+    },
+  });
+});
+
 

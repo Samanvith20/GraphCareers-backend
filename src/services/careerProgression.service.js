@@ -1,5 +1,8 @@
+import { eq } from "drizzle-orm";
 import { neo4jDriver } from "../db/neo4j/driver.js";
+import { users } from "../db/schema.js";
 import { SKILL_ALIASES } from "../lib/utils.js";
+import { db } from "../db/index.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -72,9 +75,21 @@ function jaccardOverlap(setA, setB) {
 // Main Service
 // ---------------------------------------------------------------------------
 
-export async function getCareerInsightsService({ skills }) {
+export async function getCareerInsightsService({ userId }) {
+    const user = await db.query.users.findFirst({
+    where: eq(users.id, userId),
+  });
+
+  if (!user) {
+    throw new AppError("User not found", 404);
+  }
+
+  if (!user.skills?.length) {
+    throw new AppError("User has no skills", 400);
+  }
+
   const session = neo4jDriver.session();
-  const userSkills = expandSkills(skills);
+  const userSkills = expandSkills(user.skills);
 
   try {
     // -------------------------------------------------------------------------

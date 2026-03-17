@@ -65,7 +65,7 @@ router.post(
 );
 router.post("/logout", authMiddleware, (req, res) => {
   res.clearCookie("token");
-  return res.json({ success: true });
+  return res.json({ message: "Logged out successfully" });
 });
 
 
