@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { getMatchedJobs } from "../controllers/jobs.controller.js";
+import  { getMatchedJobs, ingestJobsBatch,} from "../controllers/jobs.controller.js";
 import { authMiddleware } from "../middleware/auth.js";
 import { applyRateLimit } from "../middleware/applyRateLimit.js";
 import { matchedJobsLimiter } from "../middleware/rateLimiters/jobs.limiters.js";
@@ -13,4 +13,5 @@ router.get(
   applyRateLimit(matchedJobsLimiter, userKey),
   getMatchedJobs
 );
+router.post("/ingest",ingestJobsBatch)
 export default router;

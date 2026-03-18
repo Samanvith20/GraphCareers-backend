@@ -153,14 +153,57 @@ export const userJobApplications = pgTable(
 );
 
 
-// export const jobs = pgTable("jobs", {
-//   id: uuid("id").primaryKey().defaultRandom(),
-//  sourceJobId: varchar("source_job_id", { length: 255 }), // from scraper
-//   title: text("title"),
-//   employer: text("employer"),
-//   location: text("location"),
-//   url: text("url"),
-//   skills: text("skills").array(), // extracted job skills
-//   jobtrackingId: uuid("jobtracking_id").references(() => userJobApplications.id).notNull(),
-//   createdAt: timestamp("created_at").defaultNow(),
-// });
+export const jobs = pgTable(
+  "jobs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+
+    sourceJobId: varchar("source_job_id", { length: 255 }).notNull(),
+    source: varchar("source", { length: 100 }),
+    sourceUrl: text("source_url"),
+
+    title: text("title").notNull(),
+    roleTitle: text("role_title"),
+    company: text("company"),
+
+    // 🔥 Flattened skills (VERY IMPORTANT for querying)
+    skillsTechnical: text("skills_technical").array(),
+    skillsTools: text("skills_tools").array(),
+    skillsSoft: text("skills_soft").array(),
+
+    // experience
+    minExp: integer("min_experience"),
+    maxExp: integer("max_experience"),
+    difficultyLevel: varchar("difficulty_level", { length: 50 }),
+
+    // salary
+    salaryMin: integer("salary_min"),
+    salaryMax: integer("salary_max"),
+    salaryCurrency: varchar("salary_currency", { length: 10 }),
+    salaryPeriod: varchar("salary_period", { length: 20 }),
+
+    // location
+    location: text("location"),
+    locationState: text("location_state"),
+    locationCountry: text("location_country"),
+
+    jobType: varchar("job_type", { length: 50 }),
+    workMode: varchar("work_mode", { length: 50 }),
+
+    industry: text("industry").array(),
+
+    description: text("description"),
+
+    postedAt: timestamp("posted_at"),
+    expiryAt: timestamp("expiry_at"),
+
+    isPublished: boolean("is_published").default(false),
+
+    createdAt: timestamp("created_at").defaultNow(),
+  },
+  (table) => ({
+    sourceIdx: index("jobs_source_idx").on(table.source),
+    titleIdx: index("jobs_title_idx").on(table.title),
+    postedIdx: index("jobs_posted_idx").on(table.postedAt),
+  })
+);
