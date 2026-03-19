@@ -1,14 +1,22 @@
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import neo4j from "neo4j-driver";
 
 import { getNeo4jSession } from "../db/neo4j/session.js";
 import { normalizeSkill, SKILL_ALIASES, toNumber } from "../lib/utils.js";
 import { db } from "../db/index.js";
-import { users } from "../db/schema.js";
+import { jobMatches, users } from "../db/schema.js";
 import { AppError } from "../lib/AppError.js";
 
-// lib/skillAliases.js
+function cleanArray(val) {
+  if (!val) return [];
+  if (Array.isArray(val)) return val;
 
+  // 🔥 handles {} case
+  if (typeof val === "object") return Object.values(val);
+
+  return [];
+}
+// lib/skillAliases.js
 
 export async function getMatchedJobsService({
   userId,
@@ -24,8 +32,8 @@ export async function getMatchedJobsService({
     where: eq(users.id, userId),
   });
   if (!user) {
-  throw new AppError("User not found", 404);
-}
+    throw new AppError("User not found", 404);
+  }
 
   const userExperience = user?.experience || 0;
   const experienceYears = userExperience / 12;
@@ -173,8 +181,55 @@ export async function getMatchedJobsService({
                 ? "Yesterday"
                 : `${daysAgo}d ago`,
       };
-    });
 
+    });
+    // ----------------------------- // 🔥 STORE FOR RAG (DELETE + INSERT) // -----------------------------
+    
+   // ----------------------------- 
+// 🔥 STORE FOR RAG (DELETE + INSERT)
+// -----------------------------
+
+const CHUNK_SIZE = 25;
+
+await db.transaction(async (tx) => {
+  await tx.delete(jobMatches).where(eq(jobMatches.userId, userId));
+
+  if (jobs.length > 0) {
+    const rows = jobs.map((job) => ({
+      userId,
+      jobSourceId: String(job.id),
+      matchedCount: Number(job.matchedCount) || 0,
+      requiredCount: Number(job.totalRequired) || 0,
+      matchPercent: Number(job.matchPercent) || 0,
+      score: Number(job.matchPercent) || 0,
+      matchedSkills: cleanArray(job.matchedSkills).map(String),
+      missingSkills: cleanArray(job.missingSkills).map(String),
+    }));
+
+    // Insert in chunks to avoid parameter limits
+    for (let i = 0; i < rows.length; i += CHUNK_SIZE) {
+      const chunk = rows.slice(i, i + CHUNK_SIZE);
+      await tx
+        .insert(jobMatches)
+        .values(chunk)
+        .onConflictDoUpdate({
+          target: [jobMatches.userId, jobMatches.jobSourceId],
+          set: {
+            matchedCount: sql`excluded.matched_count`,
+            requiredCount: sql`excluded.required_count`,
+            matchPercent: sql`excluded.match_percent`,
+            score: sql`excluded.score`,
+            matchedSkills: sql`excluded.matched_skills`,
+            missingSkills: sql`excluded.missing_skills`,
+            matchedAt: sql`now()`,
+          },
+        });
+    }
+  }
+
+  console.log(`✅ Inserted ${jobs.length} job matches for user ${userId}`);
+});
+    
     return {
       jobs,
       filters: {
@@ -199,4 +254,3 @@ export async function getMatchedJobsService({
     await session.close();
   }
 }
-

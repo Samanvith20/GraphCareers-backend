@@ -1,4 +1,5 @@
 //import { boolean } from "drizzle-orm/gel-core";
+
 import {
   pgTable,
   text,
@@ -9,6 +10,7 @@ import {
   uuid,
   integer,
   doublePrecision,
+  uniqueIndex,
   pgEnum,
   index,
 } from "drizzle-orm/pg-core";
@@ -87,28 +89,40 @@ export const resumes = pgTable("resumes", {
 );
 
 // Job table to store job details fetched from external sources need to update on every fetch
-// export const jobMatches = pgTable("job_matches", {
-//   id: uuid("id").primaryKey().defaultRandom(),
+export const jobMatches = pgTable(
+  "job_matches",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
 
-//   userId: uuid("user_id")
-//     .references(() => users.id)
-//     .notNull(),
+    userId: uuid("user_id")
+      .references(() => users.id)
+      .notNull(),
 
-//   jobId: uuid("job_id")
-//     .references(() => jobs.id)
-//     .notNull(),
+    // 🔥 IMPORTANT: use sourceJobId (string from Neo4j)
+    jobSourceId: varchar("job_source_id", { length: 255 }).notNull(),
 
-//   matchedCount: integer("matched_count"),
-//   requiredCount: integer("required_count"),
-//   score: doublePrecision("score"),
-//   missingSkills: text("missing_skills").array(),
+    matchedCount: integer("matched_count").default(0),
+    requiredCount: integer("required_count").default(0),
 
-//   matchedAt: timestamp("matched_at").defaultNow(),
-// }, (table) => ({
-//   userIdx: index("job_matches_user_idx").on(table.userId),
-//   jobIdx: index("job_matches_job_idx").on(table.jobId),
-//   scoreIdx: index("job_matches_score_idx").on(table.score),
-// }));
+    matchPercent: doublePrecision("match_percent").default(0),
+    score: doublePrecision("score").default(0),
+
+    matchedSkills: text("matched_skills").array().default([]),
+    missingSkills: text("missing_skills").array().default([]),
+
+    matchedAt: timestamp("matched_at").defaultNow(),
+  },
+  (table) => ({
+  userIdx: index("job_matches_user_idx").on(table.userId),
+  jobSourceIdx: index("job_matches_source_idx").on(table.jobSourceId),
+  scoreIdx: index("job_matches_score_idx").on(table.score),
+  // ✅ must be uniqueIndex for onConflictDoUpdate to work
+  uniqueUserJob: uniqueIndex("job_matches_user_job_idx").on(
+    table.userId,
+    table.jobSourceId,
+  ),
+}),
+);
 
 
 export const jobStatusEnum = pgEnum("job_status", [

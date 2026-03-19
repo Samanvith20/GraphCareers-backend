@@ -15,8 +15,11 @@
   "packageManager": "pnpm@10.19.0",
   "dependencies": {
     "@ai-sdk/openai": "^3.0.30",
+    "@openai/agents": "^0.7.2",
+    "@openrouter/ai-sdk-provider": "^2.3.3",
     "@sentry/node": "^10.43.0",
-    "ai": "^6.0.97",
+    "ai": "^6.0.116",
+    "axios": "^1.13.6",
     "bcrypt": "^6.0.0",
     "bullmq": "^5.71.0",
     "cookie-parser": "^1.4.7",
