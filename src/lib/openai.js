@@ -1,9 +1,6 @@
-import { OpenAIProvider, setTracingDisabled } from "@openai/agents";
+import OpenAI from "openai"
 
-// ✅ Disable tracing — stops SDK from calling api.openai.com
-setTracingDisabled(true);
-
-export const openrouter = new OpenAIProvider({
+export const openrouter = new OpenAI({
   baseURL: "https://openrouter.ai/api/v1",
   apiKey: process.env.OPENROUTER_API_KEY,
 });

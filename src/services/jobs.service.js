@@ -188,23 +188,39 @@ export async function getMatchedJobsService({
    // ----------------------------- 
 // 🔥 STORE FOR RAG (DELETE + INSERT)
 // -----------------------------
+const TOP_K = 15; 
+// optional: diversity (recommended)
+const seenCompanies = new Set();
+const topJobs = [];
 
+for (const job of jobs) {
+  if (!seenCompanies.has(job.company)) {
+    topJobs.push(job);
+    seenCompanies.add(job.company);
+  }
+  if (topJobs.length === TOP_K) break;
+}
 const CHUNK_SIZE = 25;
 
 await db.transaction(async (tx) => {
   await tx.delete(jobMatches).where(eq(jobMatches.userId, userId));
 
-  if (jobs.length > 0) {
-    const rows = jobs.map((job) => ({
-      userId,
-      jobSourceId: String(job.id),
-      matchedCount: Number(job.matchedCount) || 0,
-      requiredCount: Number(job.totalRequired) || 0,
-      matchPercent: Number(job.matchPercent) || 0,
-      score: Number(job.matchPercent) || 0,
-      matchedSkills: cleanArray(job.matchedSkills).map(String),
-      missingSkills: cleanArray(job.missingSkills).map(String),
-    }));
+  if (topJobs.length > 0) {
+   const rows = topJobs.map((job) => ({
+  userId,
+  jobSourceId: String(job.id),
+
+  matchedCount: Number(job.matchedCount) || 0,
+  requiredCount: Number(job.totalRequired) || 0,
+
+  matchPercent: Number(job.matchPercent) || 0,
+
+  // 🔥 IMPORTANT FIX
+  score: Number(job.qualityScore) || 0,
+
+  matchedSkills: cleanArray(job.matchedSkills).map(String),
+  missingSkills: cleanArray(job.missingSkills).map(String),
+}));
 
     // Insert in chunks to avoid parameter limits
     for (let i = 0; i < rows.length; i += CHUNK_SIZE) {
@@ -227,7 +243,7 @@ await db.transaction(async (tx) => {
     }
   }
 
-  console.log(`✅ Inserted ${jobs.length} job matches for user ${userId}`);
+  console.log(`✅ Inserted ${topJobs.length} job matches for user ${userId}`);
 });
     
     return {

@@ -3,6 +3,7 @@ import { neo4jDriver } from "../db/neo4j/driver.js";
 import { users } from "../db/schema.js";
 import { SKILL_ALIASES } from "../lib/utils.js";
 import { db } from "../db/index.js";
+import { AppError } from "../lib/AppError.js";
 
 // ---------------------------------------------------------------------------
 // Helpers

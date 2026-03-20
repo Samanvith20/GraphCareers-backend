@@ -1,4 +1,5 @@
 import { chatService } from "../services/ai.services.js";
+import logger from "../logger/logger.js";
 
 export async function chatController(req, res) {
   const userId = req.userId;
@@ -11,6 +12,26 @@ export async function chatController(req, res) {
     return res.status(400).json({ error: "userId is required" });
   }
 
+  // ✅ Create generator BEFORE flushing headers
+  const stream = chatService(messages, userId);
+
+  // ✅ Peek first value — rate limit / auth errors throw here
+  // Headers not yet sent so we can return proper JSON error responses
+  let firstChunk;
+  try {
+    const first = await stream.next();
+    if (first.done) {
+      return res.status(200).json({ message: "No response generated" });
+    }
+    firstChunk = first.value;
+  } catch (err) {
+    logger.error("[chatController] pre-stream error:", err.message);
+
+    const status = err.statusCode ?? err.status ?? 500;
+    return res.status(status).json({ error: err.message });
+  }
+
+  // ✅ Only flush headers after confirming no errors
   res.setHeader("Content-Type", "text/plain; charset=utf-8");
   res.setHeader("Transfer-Encoding", "chunked");
   res.setHeader("Cache-Control", "no-cache, no-transform");
@@ -18,28 +39,21 @@ export async function chatController(req, res) {
   res.flushHeaders();
 
   try {
-    let wroteAnything = false;
-
-    // ✅ chatService is now an async generator — iterate and stream
-    for await (const chunk of chatService(messages, userId)) {
-      if (chunk && chunk.trim()) {
-        res.write(`0:${JSON.stringify(chunk)}\n`);
-        wroteAnything = true;
-      }
+    // Write first chunk already consumed from the peek
+    if (firstChunk) {
+      res.write(`0:${JSON.stringify(firstChunk)}\n`);
     }
 
-    // Safety fallback if nothing was streamed
-    if (!wroteAnything) {
-      res.write(`0:${JSON.stringify("I'm here to help with your career. What would you like to know?")}\n`);
+    // Stream the rest
+    for await (const chunk of stream) {
+      if (chunk) res.write(`0:${JSON.stringify(chunk)}\n`);
     }
 
     res.write(`d:${JSON.stringify({ finishReason: "stop" })}\n`);
     res.end();
 
   } catch (err) {
-    console.error("[chatController] error:", err.message);
-    console.error("[chatController] stack:", err.stack);
-
+    logger.error("[chatController] streaming error:", err.message);
     if (!res.headersSent) {
       res.status(500).json({ error: "Agent failed" });
     } else {
