@@ -3,7 +3,7 @@ import dotenv from "dotenv";
 import cors from "cors";
 import cookieParser from "cookie-parser";
 import { randomUUID } from "crypto";
-
+import paymentRoutes from "./routes/payment.routes.js"
 import authRoutes from "./routes/auth.routes.js";
 import userRoutes from "./routes/user.routes.js";
 import jobsRoutes from "./routes/jobs.routes.js";
@@ -120,6 +120,7 @@ app.use("/api/jobs", jobsRoutes);
 app.use("/api/career", careerprogressionRoutes);
 app.use("/api/job-applications", jobApplicationRoutes);
 app.use("/api/ai",aiRoutes)
+app.use("/api/payments",paymentRoutes)
 
 app.get("/", (req, res) => {
   res.json({ status: "ok", port: PORT });

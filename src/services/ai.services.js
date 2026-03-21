@@ -4,7 +4,7 @@ import { users, resumes, jobMatches, jobs, aiUsageLogs } from "../db/schema.js";
 import { getCareerInsightsService } from "./careerProgression.service.js";
 import { rewriteQuery } from "../lib/ai/rewriteQuery.js";
 import { toolDefinitions, executeTool } from "../lib/ai/tools.js";
-import { openrouter } from "../lib/openai.js";
+import { openai } from "../lib/openai.js";
 import logger from "../logger/logger.js";
 import { AppError } from "../lib/AppError.js";
 
@@ -15,13 +15,7 @@ const TIER_LIMITS = {
   enterprise: Infinity,
 };
 
-// Rough token estimate for input messages
-function estimateInputTokens(messages) {
-  return messages.reduce((total, m) => {
-    const text = typeof m.content === "string" ? m.content : "";
-    return total + encode(text).length + 4; // 4 overhead per message
-  }, 0);
-}
+
 const SYSTEM_PROMPT = `You are a Chatbot, a senior career mentor AI on a job platform. You speak like a real mentor — warm, direct, and specific. Not a chatbot.
 
 ═══════════════════════════════════════
@@ -127,7 +121,7 @@ if (Number(usage[0].total) >= TIER_LIMITS[user.tier] ?? TIER_LIMITS.free) {
   for (let turn = 0; turn < MAX_TURNS; turn++) {
 
     // ─── Non-streaming call to detect tool calls ──────────────────────────
-    const response = await openrouter.chat.completions.create({
+    const response = await openai.chat.completions.create({
       model: "gpt-4o",
       messages: agentMessages,
       tools: toolDefinitions,
@@ -169,7 +163,7 @@ if (Number(usage[0].total) >= TIER_LIMITS[user.tier] ?? TIER_LIMITS.free) {
     // ─── No tool calls — stream final answer ─────────────────────────────
     logger.info(`[agent] turn ${turn + 1} — streaming final answer`);
 
-    const stream = await openrouter.chat.completions.create({
+    const stream = await openai.chat.completions.create({
       model: "gpt-4o",
       messages: agentMessages, // history already includes tool results
       tools: toolDefinitions,

@@ -1,5 +1,4 @@
 //import { boolean } from "drizzle-orm/gel-core";
-
 import {
   pgTable,
   text,
@@ -34,11 +33,31 @@ export const users = pgTable("users", {
   role: varchar("role"),
   createdAt: timestamp("created_at").defaultNow(),
   tier: tierEnum("tier").default("free"),
+  credits: integer("credits").default(5),
+  planExpiresAt: timestamp("plan_expires_at"),
+  lastCreditReset: timestamp("last_credit_reset"),
   resetToken: varchar("reset_token", { length: 255 }),
   resetTokenExpiry: bigint("reset_token_expiry", { mode: "number" }),
 });
 
+export const payments = pgTable("payments", {
+  id: uuid("id").primaryKey().defaultRandom(),
 
+  userId: uuid("user_id")
+    .references(() => users.id)
+    .notNull(),
+
+  razorpayOrderId: varchar("razorpay_order_id", { length: 255 }),
+  razorpayPaymentId: varchar("razorpay_payment_id", { length: 255 }).unique(),
+  razorpayPaymentMethod:varchar("razorpay_payment_method",{length:300}),
+  idempotencyKey: varchar("idempotency_key", { length: 255 }).unique(),
+  amount: integer("amount"), // in paise
+  currency: varchar("currency", { length: 10 }).default("INR"),
+
+  status: varchar("status", { length: 50 }), // created, paid, failed
+
+  createdAt: timestamp("created_at").defaultNow(),
+});
 
 export const aiUsageLogs = pgTable("ai_usage_logs", {
   id: uuid("id").primaryKey().defaultRandom(),
