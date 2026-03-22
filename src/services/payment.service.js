@@ -128,8 +128,10 @@ export const paymentService = {
 
     await db.update(users)
       .set({
-        tier: "pro",
-        planExpiresAt: new Date(Date.now() + 30*24*60*60*1000),
+          tier: "pro",
+    planExpiresAt: new Date(Date.now() + 30*24*60*60*1000),
+    credits: 100, // 🔥 ADD THIS
+    lastCreditReset: new Date(),
       })
       .where(eq(users.id, dbPayment.userId));
   }
