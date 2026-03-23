@@ -8,13 +8,45 @@ import { openai } from "../lib/openai.js";
 import logger from "../logger/logger.js";
 import { AppError } from "../lib/AppError.js";
 
+import { getUserAccessFromUser, consumeUserCredits } from "./userAccess.service.js";
 
-const TIER_LIMITS = {
-  free: 10000,
-  pro: 200000,
-  enterprise: Infinity,
-};
+// ─── Credit cost per complexity ───────────────────────────────────────────────
+//
+//  basic  (1 credit) — greeting, simple career Q, no tools
+//  tool   (2 credits) — 1–2 tool calls (profile lookup, job fetch)
+//  deep   (3 credits) — 3+ tool calls or career progression analysis
+//
+const COMPLEXITY_COST = { basic: 1, tool: 2, deep: 3 };
 
+// ─── Detect complexity from the user message BEFORE calling GPT ──────────────
+// This lets us fail fast if credits < required cost.
+function estimateComplexity(userMessage) {
+  const msg = userMessage.toLowerCase();
+
+  // Deep: career plan, roadmap, progression, full advice
+  if (
+    msg.includes("career") ||
+    msg.includes("roadmap") ||
+    msg.includes("progression") ||
+    msg.includes("what should i") ||
+    msg.includes("learning path") ||
+    msg.includes("skill gap")
+  ) return "deep";
+
+  // Tool: profile questions, jobs, salary, companies
+  if (
+    msg.includes("job") ||
+    msg.includes("skill") ||
+    msg.includes("my profile") ||
+    msg.includes("salary") ||
+    msg.includes("company") ||
+    msg.includes("match") ||
+    msg.includes("resume")
+  ) return "tool";
+
+  // Basic: greetings, simple one-liners
+  return "basic";
+}
 
 const SYSTEM_PROMPT = `You are a Chatbot, a senior career mentor AI on a job platform. You speak like a real mentor — warm, direct, and specific. Not a chatbot.
 
@@ -75,72 +107,85 @@ RESPONSE: "I'm focused on your career growth — I can't help with that,
 but ask me anything about your job search or upskilling!"`;
 
 export async function* chatService(messages, userId) {
-   const user = await db.query.users.findFirst({
-      where: eq(users.id, userId),
-    });
-     if (!user) {
-      throw new AppError("user not found",404)
-    }
-  const last24h = new Date(Date.now() - 24 * 60 * 60 * 1000);
 
-const usage = await db
-  .select({
-    total: sql`COALESCE(SUM(${aiUsageLogs.totalTokens}),0)`
-  })
-  .from(aiUsageLogs)
-  .where(
-    and(eq(aiUsageLogs.userId, userId), gt(aiUsageLogs.createdAt, last24h))
-  );
-  console.log("Userusage",usage)
+  // ── 1. Fetch user + plan in one shot ──────────────────────────────────────
+  const user = await db.query.users.findFirst({
+    where: eq(users.id, userId),
+    columns: { id: true, credits: true, tier: true, planExpiresAt: true },
+  });
+  if (!user) throw new AppError("User not found", 404);
 
-if (Number(usage[0].total) >= TIER_LIMITS[user.tier] ?? TIER_LIMITS.free) {
-  throw new AppError( "Daily limit reached for your plan", 429);
-}
-  const userQuery = messages[messages.length - 1]?.content || "";
-  const rewrittenQuery = await rewriteQuery(userQuery);
+  const access = getUserAccessFromUser(user);
 
-  // ✅ Clean history — only plain string content
+  // ── 2. Upfront credit check — fail BEFORE any GPT call ────────────────────
+  const userMessage  = messages[messages.length - 1]?.content || "";
+  const complexity   = estimateComplexity(userMessage);
+  const estimatedCost = COMPLEXITY_COST[complexity];
+
+  if (access.credits < estimatedCost) {
+    const isPro = access.plan === "pro";
+ 
+    const message = isPro
+      ? `You've used all 100 Pro credits this month — you have ${access.credits} left. Your credits reset at the start of your next billing cycle.`
+      : `This response costs ${estimatedCost} credit${estimatedCost > 1 ? "s" : ""} and you have ${access.credits} free credit${access.credits === 1 ? "" : "s"} remaining. Upgrade to Pro for 100 credits/month.`;
+ 
+    throw new AppError(message, 402);
+  }
+
+  // ── 3. Rewrite query (lightweight, no model call) ─────────────────────────
+  const rewrittenQuery = await rewriteQuery(userMessage);
+
   const history = messages.slice(0, -1).map((m) => ({
-    role: m.role,
+    role:    m.role,
     content: typeof m.content === "string" ? m.content : String(m.content),
   }));
 
-  // ✅ Full message list — system + history + current query
   const agentMessages = [
     { role: "system", content: SYSTEM_PROMPT },
     ...history,
     { role: "user", content: rewrittenQuery },
   ];
 
-  logger.info("[agent] turns:", agentMessages.length, "| query:", rewrittenQuery);
-  let totalInputTokens = 0;
+  logger.info("[agent] turns:", agentMessages.length, "| complexity:", complexity, "| query:", rewrittenQuery);
+
+  let totalInputTokens  = 0;
   let totalOutputTokens = 0;
-  //let fullResponse = "";
+  let actualComplexity  = complexity; // may upgrade if more tools run than expected
   const MAX_TURNS = 6;
 
+  // ── 4. Agentic loop ────────────────────────────────────────────────────────
   for (let turn = 0; turn < MAX_TURNS; turn++) {
 
-    // ─── Non-streaming call to detect tool calls ──────────────────────────
+    // Non-streaming call to detect tool calls
     const response = await openai.chat.completions.create({
-      model: "gpt-4o",
-      messages: agentMessages,
-      tools: toolDefinitions,
-      tool_choice: "auto",
-      stream: false,
+      model:        "gpt-4o",
+      messages:     agentMessages,
+      tools:        toolDefinitions,
+      tool_choice:  "auto",
+      stream:       false,
+      // Keep context tight — reduces latency significantly
+      max_tokens:   1200,
     });
-    //console.log("response.usage",response.usage)
+
     if (response.usage) {
-      totalInputTokens += response.usage.prompt_tokens ?? 0;
+      totalInputTokens  += response.usage.prompt_tokens    ?? 0;
       totalOutputTokens += response.usage.completion_tokens ?? 0;
     }
 
+    const assistantMsg = response.choices[0].message;
 
-    const choice = response.choices[0];
-    const assistantMsg = choice.message;
-
-    // ─── Tool calls requested ─────────────────────────────────────────────
+    // ── Tool calls ───────────────────────────────────────────────────────────
     if (assistantMsg.tool_calls?.length > 0) {
       agentMessages.push(assistantMsg);
+
+      // Upgrade complexity if the model runs more tools than we estimated
+      if (assistantMsg.tool_calls.length >= 2 && actualComplexity === "basic") {
+        actualComplexity = "tool";
+      }
+      if (assistantMsg.tool_calls.length >= 3) {
+        actualComplexity = "deep";
+      }
+
       logger.info(`[agent] turn ${turn + 1} — ${assistantMsg.tool_calls.length} tool call(s)`);
 
       const toolResults = await Promise.all(
@@ -149,58 +194,61 @@ if (Number(usage[0].total) >= TIER_LIMITS[user.tier] ?? TIER_LIMITS.free) {
           try { args = JSON.parse(tc.function.arguments || "{}"); } catch {}
           const result = await executeTool(tc.function.name, args, userId);
           return {
-            role: "tool",
+            role:         "tool",
             tool_call_id: tc.id,
-            content: JSON.stringify(result),
+            content:      JSON.stringify(result),
           };
-        })
+        }),
       );
 
       agentMessages.push(...toolResults);
-      continue; // loop — LLM reads tool results next turn
+      continue;
     }
 
-    // ─── No tool calls — stream final answer ─────────────────────────────
+    // ── Stream final answer ──────────────────────────────────────────────────
     logger.info(`[agent] turn ${turn + 1} — streaming final answer`);
 
     const stream = await openai.chat.completions.create({
-      model: "gpt-4o",
-      messages: agentMessages, // history already includes tool results
-      tools: toolDefinitions,
-      tool_choice: "none",     // ✅ no more tool calls — just answer
-      stream: true,
-       stream_options: { include_usage: true },
+      model:        "gpt-4o",
+      messages:     agentMessages,
+      tools:        toolDefinitions,
+      tool_choice:  "none",
+      stream:       true,
+      stream_options: { include_usage: true },
+      max_tokens:   900,           // focused answers stream faster
+      temperature:  0.5,           // slightly lower = faster token generation
     });
 
     for await (const chunk of stream) {
       const delta = chunk.choices[0]?.delta?.content;
       if (delta) yield delta;
-      //console.log("usage:;",chunk.usage)
+
       if (chunk.usage) {
-        totalInputTokens += chunk.usage.prompt_tokens ?? 0;
+        totalInputTokens  += chunk.usage.prompt_tokens    ?? 0;
         totalOutputTokens += chunk.usage.completion_tokens ?? 0;
       }
     }
+
     const totalTokens = totalInputTokens + totalOutputTokens;
     logger.info(
-      `[agent] done | inputTokens=${totalInputTokens} outputTokens=${totalOutputTokens} total=${totalTokens}`
+      `[agent] done | complexity=${actualComplexity} cost=${COMPLEXITY_COST[actualComplexity]} ` +
+      `input=${totalInputTokens} output=${totalOutputTokens} total=${totalTokens}`,
     );
 
-    // Non-blocking — never delay the response
-    Promise.all([
-      // Token usage log
-      db.insert(aiUsageLogs).values({
-        userId,
-        feature: "chat",
-        model: "gpt-4o",
-        inputTokens: totalInputTokens,
-        outputTokens: totalOutputTokens,
-        totalTokens,
-        createdAt: new Date(),
-      }),
-    ])
+    // ── 5. Deduct credits + log — fire-and-forget, never blocks streaming ────
+    consumeUserCredits({
+      userId,
+      feature:      "ai",
+      complexity:   actualComplexity,
+      model:        "gpt-4o",
+      inputTokens:  totalInputTokens,
+      outputTokens: totalOutputTokens,
+    }).catch((err) => {
+      // Log but don't crash — user already got the response
+      logger.error("[agent] credit deduction failed:", err.message);
+    });
 
-    return; // ✅ done
+    return;
   }
 
   yield "I couldn't complete the analysis. Please try again.";

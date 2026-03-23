@@ -44,13 +44,13 @@ export function getUserAccessFromUser(user) {
     user.planExpiresAt && new Date(user.planExpiresAt) < new Date();
 
   const rawPlan = isExpired ? "free" : user.tier;
-   console.log("rawplan",rawPlan)
+   //console.log("rawplan",rawPlan)
   // 🔥 FIX: normalize
   const plan =
     typeof rawPlan === "string"
       ? rawPlan.toLowerCase()
       : "free";
-      console.log("plan::",plan)
+      //console.log("plan::",plan)
 
   const config = PLAN_CONFIG[plan] || PLAN_CONFIG.free;
 

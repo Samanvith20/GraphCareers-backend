@@ -33,7 +33,7 @@ export const users = pgTable("users", {
   role: varchar("role"),
   createdAt: timestamp("created_at").defaultNow(),
   tier: tierEnum("tier").default("free"),
-  credits: integer("credits").default(5),
+  credits: integer("credits").default(10),
   planExpiresAt: timestamp("plan_expires_at"),
   lastCreditReset: timestamp("last_credit_reset"),
   resetToken: varchar("reset_token", { length: 255 }),

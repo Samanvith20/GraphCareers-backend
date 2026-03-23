@@ -81,7 +81,8 @@ export async function getCareerInsightsService({ userId }) {
 
   //const pro        = isProUser(user);   // ← single source of truth
   const access = getUserAccessFromUser(user);
-  const pro = access.plan 
+  const isPro  = access.plan === "pro";   // true only for pro, false for "free"
+const pro    = isPro; 
   console.log("pro:;",pro)
   const session    = neo4jDriver.session();
   const userSkills = expandSkills(user.skills);

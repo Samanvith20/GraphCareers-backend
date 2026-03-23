@@ -1,109 +1,127 @@
+// ─── payment.controller.js ───────────────────────────────────────────────────
 import logger from "../logger/logger.js";
 import { paymentService } from "../services/payment.service.js";
 
 export const paymentController = {
-  // CREATE ORDER
+
+  // ── CREATE ORDER ────────────────────────────────────────────────────────────
   async createOrder(req, res, next) {
     const requestId = req.requestId;
-    const userId = req.userId;
+    const userId    = req.userId;
 
     try {
       const { idempotencyKey } = req.body;
 
-      logger.info("Create order started", {
-        requestId,
-        userId,
-      });
+      logger.info("Create order started", { requestId, userId });
 
-      const result = await paymentService.createOrder(
-        userId,
-        idempotencyKey,
-        
-      );
+      if (!idempotencyKey) {
+        logger.warn("Create order missing idempotencyKey", { requestId, userId });
+        return res.status(400).json({ error: "idempotencyKey is required" });
+      }
 
+      const result = await paymentService.createOrder(userId, idempotencyKey);
 
       if (result?.alreadyPro) {
-  logger.info("User already on Pro plan", {
-    requestId,
-    userId,
-  });
+        logger.info("Create order skipped — user already Pro", { requestId, userId });
+        return res.status(200).json({ success: false, message: result.message });
+      }
 
-  return res.status(200).json({
-    success: false,
-    message: result.message,
-  });
-}
+      logger.info("Create order success", {
+        requestId,
+        userId,
+        orderId: result.orderId,
+        amount:  result.amount,
+      });
 
       res.json(result);
+
     } catch (err) {
-        console.log("err:;",err)
       logger.error("Create order failed", {
         requestId,
         userId,
-        error: err.error ||err.message,
-      });
-      next(err);
-    }
-  },
-
-  // VERIFY PAYMENT
-  async verifyPayment(req, res, next) {
-    const requestId = req.requestId;
-
-    try {
-      logger.info("Verify payment started", {
-        requestId,
-      });
-
-      const result = await paymentService.verifyPayment(
-        req.body,
-        requestId // 🔥 pass
-      );
-
-      logger.info("Verify payment success", {
-        requestId,
-        orderId: req.body.razorpay_order_id,
-      });
-
-      res.json(result);
-    } catch (err) {
-        //console.log("err:;",err)
-      logger.error("Verify payment failed", {
-        requestId,
         error: err.message,
       });
       next(err);
     }
   },
 
-  // WEBHOOK
-  async webhook(req, res,next) {
+  // ── VERIFY PAYMENT ──────────────────────────────────────────────────────────
+  async verifyPayment(req, res, next) {
+    const requestId = req.requestId;
+    const userId    = req.userId;
+
+    try {
+      const { razorpay_order_id, razorpay_payment_id } = req.body;
+
+      logger.info("Verify payment started", {
+        requestId,
+        userId,
+        orderId:   razorpay_order_id,
+        paymentId: razorpay_payment_id,
+      });
+
+      const result = await paymentService.verifyPayment(req.body);
+
+      logger.info("Verify payment success", {
+        requestId,
+        userId,
+        orderId: razorpay_order_id,
+      });
+
+      res.json(result);
+
+    } catch (err) {
+      logger.error("Verify payment failed", {
+        requestId,
+        userId,
+        error: err.message,
+      });
+      next(err);
+    }
+  },
+
+  // ── WEBHOOK ─────────────────────────────────────────────────────────────────
+  async webhook(req, res, next) {
     const requestId = req.requestId;
 
     try {
       const signature = req.headers["x-razorpay-signature"];
 
-      logger.info("Webhook received", {
-        requestId,
-      });
+      // req.body is a Buffer here (express.raw middleware)
+      // Log the event type without parsing — safe even if body is malformed
+      let eventType = "unknown";
+      try {
+        eventType = JSON.parse(req.body.toString()).event ?? "unknown";
+      } catch {}
 
-      await paymentService.handleWebhook(
-        req.body,
-        signature,
-        requestId // 🔥 pass
-      );
+      logger.info("Webhook received", { requestId, eventType });
 
-      logger.info("Webhook processed successfully", {
-        requestId,
-      });
+      if (!signature) {
+        logger.warn("Webhook missing signature header", { requestId });
+        return res.sendStatus(400);
+      }
 
+      await paymentService.handleWebhook(req.body, signature);
+
+      logger.info("Webhook processed", { requestId, eventType });
+
+      // Always 200 — Razorpay retries on non-2xx, causing the flood you saw
       res.sendStatus(200);
+
     } catch (err) {
       logger.error("Webhook failed", {
         requestId,
         error: err.message,
       });
-      next(err)
+
+      // Still 200 — don't let Razorpay retry a bad-signature request forever
+      // For genuine processing errors you may want 500, but signature failures
+      // should silently 200 to avoid log spam from replays
+      if (err.message === "Invalid webhook signature") {
+        return res.sendStatus(200);
+      }
+
+      next(err);
     }
   },
 };

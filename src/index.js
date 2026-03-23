@@ -29,11 +29,16 @@ const allowedOrigins = process.env.FRONTEND_ORIGINS
 
 /* ---------------- Core Middlewares ---------------- */
 
+// app.js — add webhook exclusion to existing middleware
 app.use((req, res, next) => {
   const contentType = req.headers['content-type'] || '';
-  if (contentType.startsWith('multipart/form-data')) {
-    return next(); // skip — let multer handle it on the route
-  }
+
+  // Skip multipart — multer handles it
+  if (contentType.startsWith('multipart/form-data')) return next();
+
+  // Skip webhook — needs raw Buffer for HMAC signature verification
+  if (req.path === '/api/payments/webhook') return next();
+
   express.json({ limit: '10mb' })(req, res, next);
 });
 app.use(express.urlencoded({ limit: '10mb', extended: true })); // ← add this too
