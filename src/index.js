@@ -9,7 +9,7 @@ import userRoutes from "./routes/user.routes.js";
 import jobsRoutes from "./routes/jobs.routes.js";
 import jobApplicationRoutes from "./routes/jobApplication.routes.js";
 import careerprogressionRoutes from "./routes/careerprogression.routes.js";
-import aiRoutes from "./routes/ai.routes.js";
+import aiRoutes from "./routes/chat.routes.js";
 import { checkRedisHealth } from "./config/redis.js";
 import { httpRequestDuration, register } from "./lib/metrices.js";
 import logger from "./logger/logger.js";

@@ -2,26 +2,35 @@ import {
   fetchUserProfile,
   fetchMatchedJobs,
   fetchCareerProgression,
-} from "../../services/ai.services.js";
+} from "../../services/chat.services.js";
 
 export const toolDefinitions = [
   {
     type: "function",
     function: {
       name: "getUserData",
-      description: "Get the user's full profile — skills, resume, experience, career stage. ALWAYS call this first for any career question.",
-      parameters: { type: "object", properties: {}, additionalProperties: false },
+      description:
+        "Get the user's full profile — skills, resume, experience, career stage. ALWAYS call this first for any career question.",
+      parameters: {
+        type: "object",
+        properties: {},
+        additionalProperties: false,
+      },
     },
   },
   {
     type: "function",
     function: {
       name: "getUserMatchedJobs",
-      description: "Get jobs matched to the user profile. Use ONLY when user asks about jobs, recommendations, or gap analysis.",
+      description:
+        "Get jobs matched to the user profile. Use ONLY when user asks about jobs, recommendations, or gap analysis.",
       parameters: {
         type: "object",
         properties: {
-          limit: { type: "number", description: "Max jobs to return, default 5" },
+          limit: {
+            type: "number",
+            description: "Max jobs to return, default 5",
+          },
         },
         additionalProperties: false,
       },
@@ -31,8 +40,13 @@ export const toolDefinitions = [
     type: "function",
     function: {
       name: "getCareerProgression",
-      description: "Get career progression insights — skill gaps, path to next role. Use ONLY when user asks about learning, growth, or career path.",
-      parameters: { type: "object", properties: {}, additionalProperties: false },
+      description:
+        "Get career progression insights — skill gaps, path to next role. Use ONLY when user asks about learning, growth, or career path.",
+      parameters: {
+        type: "object",
+        properties: {},
+        additionalProperties: false,
+      },
     },
   },
 ];
