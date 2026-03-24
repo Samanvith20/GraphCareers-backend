@@ -83,7 +83,7 @@ export async function getCareerInsightsService({ userId }) {
   const access = getUserAccessFromUser(user);
   const isPro  = access.plan === "pro";   // true only for pro, false for "free"
 const pro    = isPro; 
-  console.log("pro:;",pro)
+  //console.log("pro:;",pro)
   const session    = neo4jDriver.session();
   const userSkills = expandSkills(user.skills);
 
@@ -91,35 +91,31 @@ const pro    = isPro;
     // ── Neo4j query (unchanged from your original) ────────────────────────
     const rolesResult = await session.run(
       `
-      MATCH (r:Role)-[rel:REQUIRES]->(s:Skill)
-      WHERE rel.frequency IS NOT NULL
-        AND s.canonical IN $userSkills
+      MATCH (r:Role)-[:REQUIRES]->(s:Skill)
+WHERE s.canonical IN $userSkills
 
-      WITH r, collect(DISTINCT s.canonical) AS matchedSkills
-      WHERE size(matchedSkills) >= 3
+WITH r, collect(DISTINCT s.canonical) AS matchedSkills
+WHERE size(matchedSkills) >= 3
 
-      MATCH (r)-[rel2:REQUIRES]->(s2:Skill)
-      WHERE rel2.frequency IS NOT NULL
+MATCH (r)-[:REQUIRES]->(s2:Skill)
 
-      OPTIONAL MATCH (j:Job)-[:MAPS_TO]->(r)
-      WHERE j.expires_at > datetime()
-      OPTIONAL MATCH (j)-[:POSTED_BY]->(c:Company)
-      OPTIONAL MATCH (j)-[:OFFERS_SALARY]->(sal:Salary)
+OPTIONAL MATCH (rs:RoleStats {role: r.role_title})
 
-      WITH r,
-           matchedSkills,
-           collect(DISTINCT { name: s2.canonical, demandRank: s2.demand_rank }) AS allSkillsWithRank,
-           collect(DISTINCT c.name)[0..10] AS companies,
-           avg(sal.min) AS avgMin,
-           avg(sal.max) AS avgMax
+WITH r,
+     matchedSkills,
+     collect(DISTINCT {
+       name: s2.canonical,
+       demandRank: s2.demand_rank
+     }) AS allSkillsWithRank,
+     rs
 
-      RETURN r.role_title       AS role,
-             r.difficulty_level AS difficulty,
-             matchedSkills,
-             allSkillsWithRank,
-             companies,
-             avgMin,
-             avgMax
+RETURN r.role_title AS role,
+       r.difficulty_level AS difficulty,
+       matchedSkills,
+       allSkillsWithRank,
+       rs.avgMin AS avgMin,
+       rs.avgMax AS avgMax,
+       rs.topCompanies AS companies
       `,
       { userSkills },
     );
@@ -151,7 +147,9 @@ const pro    = isPro;
           difficulty:    toSafeNumber(rec.get("difficulty")) ?? 1,
           matchedSkills: matched,
           allSkills:     allSkillNames,
-          missingSkills: missingWithRank.map((x) => x.name),
+         missingSkills: missingWithRank
+  .slice(0, 8)
+  .map((x) => x.name),
           companies:     rec.get("companies") ?? [],
           avgMin:        toSafeNumber(rec.get("avgMin")),
           avgMax:        toSafeNumber(rec.get("avgMax")),
