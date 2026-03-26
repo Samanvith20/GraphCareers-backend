@@ -97,19 +97,13 @@ export async function getMatchedJobsService({
     id: true,
     skills: true,
     experience: true,
-    tier: true,
-    credits: true,
-    planExpiresAt: true,
   },
 });
 if (!user) throw new AppError("User not found", 404);
 if (!user.skills?.length) throw new AppError("User has no skills", 400);
 
 
-const access = getUserAccessFromUser(user);
-const queryLimit = Math.min(access.jobLimit, 200);
-console.log("queylimit",queryLimit)
-console.log("user pala",access.plan)
+const queryLimit = 200; // or even higher if needed
 
   // ── Experience window ─────────────────────────────────────────────────────
 const expMonths = user.experience || 0;
@@ -298,7 +292,7 @@ RETURN
 
   return {
     jobs,
-      isPro: access.plan === "pro",
+      // isPro: access.plan === "pro",
     filters: {
       total:          jobs.length,
       avgMatch:       jobs.length > 0
