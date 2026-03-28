@@ -40,6 +40,7 @@ export const users = pgTable("users", {
   lastCreditReset: timestamp("last_credit_reset"),
   resetToken: varchar("reset_token", { length: 255 }),
   resetTokenExpiry: bigint("reset_token_expiry", { mode: "number" }),
+  lastEmailSentAt: timestamp("last_email_sent_at"),
 });
 
 export const payments = pgTable("payments", {
@@ -130,19 +131,34 @@ export const jobMatches = pgTable(
 
     matchedSkills: text("matched_skills").array().default([]),
     missingSkills: text("missing_skills").array().default([]),
+    isEmailed: boolean("is_emailed").default(false),
 
     matchedAt: timestamp("matched_at").defaultNow(),
   },
-  (table) => ({
-  userIdx: index("job_matches_user_idx").on(table.userId),
-  jobSourceIdx: index("job_matches_source_idx").on(table.jobSourceId),
-  scoreIdx: index("job_matches_score_idx").on(table.score),
-  // ✅ must be uniqueIndex for onConflictDoUpdate to work
-  uniqueUserJob: uniqueIndex("job_matches_user_job_idx").on(
-    table.userId,
-    table.jobSourceId,
-  ),
-}),
+  (table) => {
+  return {
+    userIdx: index("job_matches_user_idx").on(table.userId),
+
+    jobSourceIdx: index("job_matches_source_idx").on(table.jobSourceId),
+
+    scoreIdx: index("job_matches_score_idx").on(table.score),
+
+    userMatchedIdx: index("job_matches_user_matched_idx").on(
+      table.userId,
+      table.matchedAt
+    ),
+
+    emailedIdx: index("job_matches_user_emailed_idx").on(
+      table.userId,
+      table.isEmailed
+    ),
+
+    uniqueUserJob: uniqueIndex("job_matches_user_job_idx").on(
+      table.userId,
+      table.jobSourceId
+    ),
+  };
+}
 );
 
 
@@ -356,3 +372,28 @@ export const userMemoriesRelations = relations(userMemories, ({ one }) => ({
   user:          one(users,        { fields: [userMemories.userId],          references: [users.id] }),
   sourceSession: one(chatSessions, { fields: [userMemories.sourceSessionId], references: [chatSessions.id] }),
 }));
+
+export const userJobEmailLog = pgTable(
+  "user_job_email_log",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+
+    userId: uuid("user_id")
+      .references(() => users.id)
+      .notNull(),
+
+
+    emailedAt: timestamp("emailed_at").defaultNow(),
+    jobSourceId: varchar("job_source_id", { length: 255 }).notNull(),
+  },
+  (table) => ({
+    userIdx: index("email_log_user_idx").on(table.userId),
+
+    // 🔥 CRITICAL: prevents duplicate emails
+    uniqueUserJob: uniqueIndex("email_log_user_job_idx").on(
+      table.userId,
+       table.jobSourceId
+    ),
+  })
+);
+

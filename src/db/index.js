@@ -6,6 +6,7 @@ import * as schema from "./schema.js";
 import logger from "../logger/logger.js";
 
 const { Pool } = pkg;
+//console.log("all crdentials",process.env.DB_HOST,process.env.DB_PORT,process.env.DB_USER,process.env.DB_PASSWORD,process.env.DB_NAME)
 
 if (
   !process.env.DB_HOST ||
@@ -16,6 +17,7 @@ if (
 ) {
   throw new Error("Missing database credentials");
 }
+
 
 // ✅ GLOBAL SINGLETON (ESM safe)
 if (!globalThis.__pgPool) {

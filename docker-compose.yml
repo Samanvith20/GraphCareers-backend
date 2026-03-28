@@ -51,6 +51,26 @@ services:
     restart: unless-stopped
     volumes:
       - resume_uploads:/app/uploads/resumes
+   
+  matcher-worker:
+    build: .
+    command: node src/workers/matcherWorker.js
+    env_file:
+      - ${ENV_FILE}
+    depends_on:
+      - redis
+      - postgres
+    restart: unless-stopped
+
+  email-worker:
+    build: .
+    command: node src/workers/emailWorker.js
+    env_file:
+      - ${ENV_FILE}
+    depends_on:
+      - redis
+      - postgres
+    restart: unless-stopped
 
   prometheus:
     image: prom/prometheus
