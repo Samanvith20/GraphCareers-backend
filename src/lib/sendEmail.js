@@ -13,6 +13,7 @@ const transporter = nodemailer.createTransport({
 
 export async function sendEmail({ to, subject, html }) {
   try {
+    logger.info(`Sending email to ${to}`);
     const info = await transporter.sendMail({
   from: "GraphCareers <support@graphcareers.com>",
   to,

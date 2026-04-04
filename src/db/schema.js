@@ -253,6 +253,7 @@ export const jobs = pgTable(
     createdAt: timestamp("created_at").defaultNow(),
   },
   (table) => ({
+     sourceJobUnique: uniqueIndex("jobs_source_job_id_idx").on(table.sourceJobId),
     sourceIdx: index("jobs_source_idx").on(table.source),
     titleIdx: index("jobs_title_idx").on(table.title),
     postedIdx: index("jobs_posted_idx").on(table.postedAt),

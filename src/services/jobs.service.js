@@ -4,7 +4,7 @@ import neo4j from "neo4j-driver";
 import { getNeo4jSession } from "../db/neo4j/session.js";
 import { normalizeSkill, SKILL_ALIASES, toNumber } from "../lib/utils.js";
 import { db } from "../db/index.js";
-import { jobMatches, users } from "../db/schema.js";
+import { jobMatches, users,jobs as jobsTable } from "../db/schema.js";
 import { AppError } from "../lib/AppError.js";
 import {  getUserAccessFromUser } from "./userAccess.service.js";
 
@@ -108,7 +108,7 @@ const queryLimit = 200; // or even higher if needed
   // ── Experience window ─────────────────────────────────────────────────────
 const expMonths = user.experience || 0;
 const expYears  = expMonths / 12;
-console.log("experinece",expYears,expMonths)
+//console.log("experinece",expYears,expMonths)
 
 let minExp, maxExp;
 
@@ -254,8 +254,25 @@ RETURN
       await db.transaction(async (tx) => {
         await tx.delete(jobMatches).where(eq(jobMatches.userId, userId));
         if (!topJobs.length) return;
+         // ✅ 1. Insert into jobs table (FIX)
+         await tx.insert(jobsTable).values(
+  topJobs
+    .filter(job => job && job.id) // ✅ FIX
+    .map((job) => ({
+      sourceJobId: String(job.id),
+      title: job.title,
+      company: job.company,
+      location: job.location,
+      sourceUrl: job.url,
+         salaryMin: job.salaryMin ?? null,
+      salaryMax: job.salaryMax ?? null,
+    }))
+).onConflictDoNothing();
 
-        const rows = topJobs.map((job) => ({
+        const rows = topJobs.
+        filter(job => job && job.id) // ✅ FIX
+        .map((job) => ({
+          
           userId,
           jobSourceId:   String(job.id),
           matchedCount:  Number(job.matchedCount)  || 0,
@@ -283,7 +300,7 @@ RETURN
               },
             });
         }
-        console.log(`✅ Stored ${topJobs.length} job matches for user ${userId}`);
+        //console.log(`✅ Stored ${topJobs.length} job matches for user ${userId}`);
       });
     } catch (err) {
       console.error("⚠️  Background RAG store failed:", err);
