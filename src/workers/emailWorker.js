@@ -316,8 +316,8 @@ function generateEmailHTML(name, jobs) {
 
 
 
- runEmailWorker()
-// ⏰ Run after matcher
-// cron.schedule("30 10,17,23 * * *", runEmailWorker, {
-//   timezone: "Asia/Kolkata",
-// });
+ //runEmailWorker()
+//⏰ Run after matcher
+cron.schedule("30 10,17,23 * * *", runEmailWorker, {
+  timezone: "Asia/Kolkata",
+});
