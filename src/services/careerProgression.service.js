@@ -80,8 +80,8 @@ export async function getCareerInsightsService({ userId }) {
   if (!user.skills?.length) throw new AppError("User has no skills", 400);
 
   //const pro        = isProUser(user);   // ← single source of truth
-  const access = getUserAccessFromUser(user);
-  const isPro  = access.plan === "pro";   // true only for pro, false for "free"
+  
+  const isPro  = "pro";   // true only for pro, false for "free"
 const pro    = isPro; 
   //console.log("pro:;",pro)
   const session    = neo4jDriver.session();

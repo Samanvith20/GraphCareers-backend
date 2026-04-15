@@ -1,5 +1,10 @@
 import { db } from "../db/index.js";
-import { users, userJobApplications, resumes, aiUsageLogs } from "../db/schema.js";
+import {
+  users,
+  userJobApplications,
+  resumes,
+  aiUsageLogs,
+} from "../db/schema.js";
 import { and, eq, gt, sql, desc } from "drizzle-orm";
 import { generateObject } from "ai";
 import { openrouter } from "../lib/openai.js";
@@ -10,13 +15,16 @@ import fs from "fs/promises";
 import path from "path";
 import logger from "../logger/logger.js";
 import { AppError } from "../lib/AppError.js";
-import { getUserAccessFromUser, consumeUserCredits } from "./userAccess.service.js";
+import {
+  getUserAccessFromUser,
+  consumeUserCredits,
+} from "./userAccess.service.js";
 
 const MAX_SIZE = 500 * 1024;
 
 const TIER_LIMITS = {
-  free:       10_000,
-  pro:        200_000,
+  free: 10_000,
+  pro: 200_000,
   enterprise: Infinity,
 };
 
@@ -45,17 +53,17 @@ export async function getUserProfileService(userId) {
 
   const result = await db
     .select({
-      id:         users.id,
-      name:       users.name,
-      email:      users.email,
-      skills:     users.skills,
-      location:   users.location,
+      id: users.id,
+      name: users.name,
+      email: users.email,
+      skills: users.skills,
+      location: users.location,
       experience: users.experience,
-      bio:        users.bio,
-      createdAt:  users.createdAt,
-      tier:       users.tier,
-      role:       users.role,
-      credits:    users.credits
+      bio: users.bio,
+      createdAt: users.createdAt,
+      tier: users.tier,
+      role: users.role,
+      credits: users.credits,
     })
     .from(users)
     .where(eq(users.id, userId))
@@ -66,13 +74,13 @@ export async function getUserProfileService(userId) {
   }
 
   const resume = await db.query.resumes.findFirst({
-    where:   eq(resumes.userId, userId),
+    where: eq(resumes.userId, userId),
     columns: {
-      fileName:       true,
-      uploadedAt:     true,
+      fileName: true,
+      uploadedAt: true,
       isResumeParsed: true,
-      status:         true,
-      errorMessage:   true,
+      status: true,
+      errorMessage: true,
     },
   });
 
@@ -87,17 +95,17 @@ export async function getUserProfileService(userId) {
     profile: result[0],
     resume: resume
       ? {
-          uploaded:     true,
-          parsed:       resume.isResumeParsed,
-          status:       resume.status,
+          uploaded: true,
+          parsed: resume.isResumeParsed,
+          status: resume.status,
           errorMessage: resume.errorMessage,
-          fileName:     resume.fileName,
-          uploadedAt:   resume.uploadedAt,
+          fileName: resume.fileName,
+          uploadedAt: resume.uploadedAt,
         }
       : {
-          uploaded:     false,
-          parsed:       false,
-          status:       "idle",
+          uploaded: false,
+          parsed: false,
+          status: "idle",
           errorMessage: null,
         },
     applicationsCount,
@@ -144,7 +152,7 @@ export async function uploadResumeService(userId, file, requestId) {
   }
 
   const user = await db.query.users.findFirst({
-    where:   eq(users.id, userId),
+    where: eq(users.id, userId),
     columns: { id: true, tier: true, credits: true, planExpiresAt: true },
   });
 
@@ -159,13 +167,11 @@ export async function uploadResumeService(userId, file, requestId) {
     throw new AppError(creditErrorMessage(access, 2), 402);
   }
 
- 
-
   // ── 3. File-type validation ───────────────────────────────────────────────
   const fileName = file.originalname.toLowerCase();
   const safeName = fileName.replace(/[^a-z0-9.\-_]/gi, "_");
-  const isPDF    = safeName.endsWith(".pdf");
-  const isDOCX   = safeName.endsWith(".docx");
+  const isPDF = safeName.endsWith(".pdf");
+  const isDOCX = safeName.endsWith(".docx");
 
   if (!isPDF && !isDOCX) {
     throw new AppError("Only PDF or DOCX files are supported", 400);
@@ -175,7 +181,7 @@ export async function uploadResumeService(userId, file, requestId) {
   await fs.mkdir(uploadDir, { recursive: true });
 
   const uniqueName = `${userId}_${Date.now()}_${safeName}`;
-  const filePath   = path.join(uploadDir, uniqueName);
+  const filePath = path.join(uploadDir, uniqueName);
 
   await fs.writeFile(filePath, file.buffer);
 
@@ -212,7 +218,7 @@ export async function parseResumeWithAIService(userId, requestId) {
     // uploadResumeService already checked, but the worker might run seconds
     // later — user could have spent credits on something else in between.
     const user = await db.query.users.findFirst({
-      where:   eq(users.id, userId),
+      where: eq(users.id, userId),
       columns: { id: true, tier: true, credits: true, planExpiresAt: true },
     });
 
@@ -222,9 +228,10 @@ export async function parseResumeWithAIService(userId, requestId) {
 
     if (access.credits < 2) {
       // Mark failed immediately with a clear human-readable reason
-      await db.update(resumes)
+      await db
+        .update(resumes)
         .set({
-          status:       "failed",
+          status: "failed",
           errorMessage: creditErrorMessage(access, 2),
         })
         .where(eq(resumes.userId, userId));
@@ -240,87 +247,135 @@ export async function parseResumeWithAIService(userId, requestId) {
 
     try {
       const result = await generateObject({
-        model:       openrouter(process.env.OPENROUTER_MODEL),
-        schema:      ResumeSchema,
+        model: openrouter(process.env.OPENROUTER_MODEL),
+        schema: ResumeSchema,
         temperature: 0,
-        prompt:      buildResumePrompt(resume.text),
+        prompt: buildResumePrompt(resume.text),
       });
 
-      object   = result.object;
-      aiUsage  = result.usage;
-
+      object = result.object;
+      aiUsage = result.usage;
     } catch (err) {
-      logger.error("Resume AI parsing failed", { userId, requestId, error: err.message });
+      logger.error("Resume AI parsing failed", {
+        userId,
+        requestId,
+        error: err.message,
+      });
 
-      await db.update(resumes)
-        .set({ status: "failed", errorMessage: err.message || "AI parsing error" })
+      await db
+        .update(resumes)
+        .set({
+          status: "failed",
+          errorMessage: err.message || "AI parsing error",
+        })
         .where(eq(resumes.userId, userId))
         .catch((dbErr) =>
-          logger.error("CRITICAL: Failed to update resume status", { userId, dbError: dbErr.message }),
+          logger.error("CRITICAL: Failed to update resume status", {
+            userId,
+            dbError: dbErr.message,
+          }),
         );
 
       throw err;
     }
 
     if (!object) throw new Error("Invalid AI response");
+    //console.log("object:;", object);
 
-    logger.info("AI parsing completed", { userId, requestId });
+   const cleanedData = {
+  name: object.name,
+  skills: normalizeSkills(object.skills),
+  location: object.location,
 
+  // ✅ FIX THIS
+  experience: Array.isArray(object.experience)
+    ? object.experience.reduce((sum, exp) => sum + (exp.experienceMonths || 0), 0)
+    : object.experience || 0,
+
+  bio: object.bio,
+};
     // ── 4. Normalize ──────────────────────────────────────────────────────
-    const cleanedData = {
-      name:       object.name,
-      skills:     normalizeSkills(object.skills),
-      location:   object.location,
+    const structuredResume = {
+      contact: {
+        name: object.name,
+        email: object.email,
+        phone: object.phone,
+        location: object.location,
+        linkedin: object.linkedin,
+        github: object.github,
+      },
+      summary: object.bio,
       experience: object.experience,
-      bio:        object.bio,
+      projects: object.projects || [],
+      skills: object.skills,
+      education: object.education || [],
+      certifications: object.certifications || [],
     };
+    //console.log("cleanedData:;", JSON.stringify(cleanedData, null, 2));
+   
+    try {
+      // ✅ CRITICAL ATOMIC PART
+      await db.transaction(async (tx) => {
+        await tx.update(users).set(cleanedData).where(eq(users.id, userId));
 
-    // ── 5. Atomic transaction: update user + resume + deduct credits ──────
-    // All three happen together — if any step fails, nothing commits.
-    await db.transaction(async (tx) => {
+        await tx
+          .update(users)
+          .set({ credits: sql`${users.credits} - 2` })
+          .where(eq(users.id, userId));
 
-      // 5a. Update user profile with parsed data
-      await tx.update(users)
-        .set(cleanedData)
-        .where(eq(users.id, userId));
-
-      // 5b. Mark resume as completed
-      await tx.update(resumes)
-        .set({
-          fileName:       resume.pendingFileName,
-          pendingFileName: null,
-          isResumeParsed: true,
-          status:         "completed",
-          errorMessage:   null,
-        })
-        .where(eq(resumes.userId, userId));
-
-      // 5c. Deduct 2 credits atomically (use sql to avoid race on stale read)
-      await tx.update(users)
-        .set({ credits: sql`${users.credits} - 2` })
-        .where(eq(users.id, userId));
-
-      // 5d. Log AI usage
-      await tx.insert(aiUsageLogs).values({
-        userId,
-        feature:      "resume_parse",
-        model:        process.env.OPENROUTER_MODEL,
-        inputTokens:  aiUsage.inputTokens,
-        outputTokens: aiUsage.outputTokens,
-        totalTokens:  aiUsage.totalTokens,
+        await tx
+          .update(resumes)
+          .set({
+            status: "completed",
+            isResumeParsed: true,
+            fileName: resume.pendingFileName,
+            pendingFileName: null,
+            errorMessage: null,
+          })
+          .where(eq(resumes.userId, userId));
       });
+
+      // ✅ NON-CRITICAL (can fail safely)
+      await db.update(resumes).set({
+        structuredJson: JSON.stringify(structuredResume),
+      });
+
+      await db.insert(aiUsageLogs).values({
+        userId,
+        feature: "resume_parse",
+        model: process.env.OPENROUTER_MODEL,
+        inputTokens: aiUsage.inputTokens,
+        outputTokens: aiUsage.outputTokens,
+        totalTokens: aiUsage.totalTokens,
+      });
+    } catch (err) {
+      logger.error("Resume parsing failed", err);
+
+     await db.update(resumes)
+  .set({
+    status: "failed",
+    errorMessage: err.message,
+  })
+  .where(eq(resumes.userId, userId)); 
+    }
+
+    logger.info("Resume AI parsing completed successfully", {
+      userId,
+      requestId,
     });
 
-    logger.info("Resume AI parsing completed successfully", { userId, requestId });
-
     return cleanedData;
-
   } catch (err) {
-    await db.update(resumes)
+    await db
+      .update(resumes)
       .set({ status: "failed", errorMessage: err.message || "Unknown error" })
       .where(eq(resumes.userId, userId));
 
-    logger.error("Resume AI parsing failed", { userId, requestId, error: err.message });
+    logger.error("Resume AI parsing failed", {
+      userId,
+      requestId,
+      error: err.message,
+    });
 
     throw err;
   }

@@ -14,6 +14,7 @@ import { checkRedisHealth } from "./config/redis.js";
 import { httpRequestDuration, register } from "./lib/metrices.js";
 import logger from "./logger/logger.js";
 import Sentry from "./lib/sentry.js";
+import resumeRoutes from "./routes/resume.routes.js";
 
 dotenv.config();
 
@@ -126,6 +127,7 @@ app.use("/api/career", careerprogressionRoutes);
 app.use("/api/job-applications", jobApplicationRoutes);
 app.use("/api/ai",aiRoutes)
 app.use("/api/payments",paymentRoutes)
+app.use("/api/resume", resumeRoutes);
 
 app.get("/", (req, res) => {
   res.json({ status: "ok", port: PORT });

@@ -17,10 +17,7 @@ const worker=new Worker(
       jobId: job.id,
       userId,
     });
-    logger.info("Resume parsing started", {
-      requestId,
-      userId
-    });
+   
 
     await parseResumeWithAIService(userId,requestId);
 

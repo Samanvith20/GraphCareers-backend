@@ -11,8 +11,42 @@ export const updateProfileSchema = z.object({
 
 export const ResumeSchema = z.object({
   name: z.string().nullable(),
-  skills: z.array(z.string()),
+  email: z.string().nullable(),
+  phone: z.string().nullable(),
   location: z.string().nullable(),
-  experience: z.number(), // months
+  linkedin: z.string().nullable(),
+  github: z.string().nullable(),
+
   bio: z.string().nullable(),
+
+  skills: z.array(z.string()),
+
+  experience: z.array(
+    z.object({
+      company: z.string().nullable(),
+      role: z.string().nullable(),
+      startDate: z.string().nullable(),
+      endDate: z.string().nullable(),
+      experienceMonths: z.number(),
+      description: z.array(z.string()),
+    })
+  ),
+
+  projects: z.array(
+    z.object({
+      name: z.string().nullable(),
+      techStack: z.array(z.string()),
+      description: z.array(z.string()),
+    })
+  ),
+
+  education: z.array(
+    z.object({
+      degree: z.string().nullable(),
+      institution: z.string().nullable(),
+      year: z.string().nullable(),
+    })
+  ),
+
+  certifications: z.array(z.string()),
 });

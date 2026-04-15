@@ -100,7 +100,7 @@ export const resumes = pgTable("resumes", {
   fileType: varchar("file_type"),
   status: resumeStatusEnum("status").default("pending"),
   errorMessage: varchar("error_message", { length: 255 }),
-
+structuredJson: text("structured_json"),
   text: text("text"),
   uploadedAt: timestamp("uploaded_at").defaultNow(),
   isResumeParsed: boolean("is_resume_parsed").default(false),
@@ -201,6 +201,59 @@ export const userJobApplications = pgTable(
       .defaultNow(), // last status change
   },
  
+);
+// ─── ADD THIS TO YOUR EXISTING schema.ts ──────────────────────────────────────
+// Place after the userJobApplications table
+
+export const resumeOptimizationStatusEnum = pgEnum("resume_optimization_status", [
+  "pending",
+  "processing", 
+  "completed",
+  "failed",
+]);
+
+export const resumeOptimizations = pgTable(
+  "resume_optimizations",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+
+    userId: uuid("user_id")
+      .references(() => users.id, { onDelete: "cascade" })
+      .notNull(),
+
+    jobSourceId: varchar("job_source_id", { length: 255 }).notNull(),
+
+    // ATS scores (0-100)
+    scoreBefore: integer("score_before").default(0),
+    scoreAfter:  integer("score_after").default(0),
+
+    // What the AI produced (structured JSON stored as text)
+    // Shape: { summary, experience: [{employer,title,startDate,endDate,bullets}], skills:{technical,soft}, optimizationNotes: string[] }
+    optimizedJson: text("optimized_json"),
+
+    // Snapshot of which keywords were matched/missing at time of optimization
+    keywordsMatched: text("keywords_matched").array().default([]),
+    keywordsMissing: text("keywords_missing").array().default([]),
+    keywordsAdded:   text("keywords_added").array().default([]),   // newly integrated by AI
+
+    status: resumeOptimizationStatusEnum("status").default("pending"),
+    errorMessage: varchar("error_message", { length: 255 }),
+
+    creditsUsed: integer("credits_used").default(1),
+
+    createdAt: timestamp("created_at").defaultNow(),
+    updatedAt: timestamp("updated_at").defaultNow(),
+  },
+  (table) => ({
+    userIdx: index("resume_opt_user_idx").on(table.userId),
+
+    // One cached optimization per (user, job) — re-use within 24h
+    // To invalidate: delete this row when user re-uploads resume
+    uniqueUserJob: uniqueIndex("resume_opt_user_job_idx").on(
+      table.userId,
+      table.jobSourceId
+    ),
+  })
 );
 
 
