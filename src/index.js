@@ -15,6 +15,7 @@ import { httpRequestDuration, register } from "./lib/metrices.js";
 import logger from "./logger/logger.js";
 import Sentry from "./lib/sentry.js";
 import resumeRoutes from "./routes/resume.routes.js";
+import resumeIntelligenceRoutes from "./routes/resumeIntelligence.routes.js";
 
 dotenv.config();
 
@@ -128,6 +129,7 @@ app.use("/api/job-applications", jobApplicationRoutes);
 app.use("/api/ai",aiRoutes)
 app.use("/api/payments",paymentRoutes)
 app.use("/api/resume", resumeRoutes);
+app.use("/api/resume-intelligence", resumeIntelligenceRoutes);
 
 app.get("/", (req, res) => {
   res.json({ status: "ok", port: PORT });

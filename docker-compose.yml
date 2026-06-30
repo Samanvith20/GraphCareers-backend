@@ -62,6 +62,16 @@ services:
       - postgres
     restart: unless-stopped
 
+  resume-optimization-worker:
+    build: .
+    command: node src/workers/resumeOptimizationWorker.js
+    env_file:
+      - ${ENV_FILE}
+    depends_on:
+      - redis
+      - postgres
+    restart: unless-stopped
+
   email-worker:
     build: .
     command: node src/workers/emailWorker.js
