@@ -1,7 +1,7 @@
 import { AppError } from "../lib/AppError.js";
 import { db } from "../db/index.js";
 import { resumeOptimizations, users } from "../db/schema.js";
-import { eq, and } from "drizzle-orm";
+import { eq, and, inArray } from "drizzle-orm";
 import { resumeOptimizationQueue } from "../queue/resumeOptimizationQueue.js";
 import { generatePdf, generateDocx } from "../services/documentGenerator.service.js";
 import logger from "../logger/logger.js";
@@ -9,49 +9,77 @@ import { consumeUserCredits, getUserAccessFromUser } from "../services/userAcces
 
 export const optimizeResumeTrigger = async (req, res, next) => {
   try {
-    const userId = req.user.id;
-    const { jobSourceId } = req.params;
+    const userId = req.userId;
+    const { platform } = req.params;
     const { requestId } = req;
+    const idempotencyKey = req.headers["idempotency-key"] || `${userId}-${platform}`;
 
-    // 1. Check Credits First
+    // 1. Enforce Global Rate Limiting & Deduplication (Max 1 active job across any platform)
+    const [activeJob] = await db
+      .select()
+      .from(resumeOptimizations)
+      .where(
+        and(
+          eq(resumeOptimizations.userId, userId),
+          inArray(resumeOptimizations.status, ["pending", "processing"])
+        )
+      );
+
+    if (activeJob) {
+      if (activeJob.platform === platform) {
+        return res.status(202).json({
+          success: true,
+          message: "Optimization is already in progress",
+          status: activeJob.status,
+        });
+      } else {
+        throw new AppError(`You already have an active optimization running for ${activeJob.platform}. Please wait for it to finish.`, 429);
+      }
+    }
+
+    // 2. 6-Hour Cache Rule (Cost Savings)
+    const [existing] = await db
+      .select()
+      .from(resumeOptimizations)
+      .where(and(eq(resumeOptimizations.userId, userId), eq(resumeOptimizations.platform, platform)));
+
+    if (existing && existing.status === "completed" && existing.updatedAt) {
+      const hoursSinceOptimization = (new Date() - new Date(existing.updatedAt)) / (1000 * 60 * 60);
+      if (hoursSinceOptimization < 6) {
+        return res.status(200).json({
+          success: true,
+          message: "Optimization returned from cache",
+          status: "completed",
+          cached: true
+        });
+      }
+    }
+
+    // 3. Check Credits Before Proceeding
     const [user] = await db.select().from(users).where(eq(users.id, userId));
     const access = getUserAccessFromUser(user);
     if (user.credits < 2 && access.tier !== "PRO") {
       throw new AppError("Insufficient credits. Resume optimization requires 2 credits.", 402);
     }
 
-    // 2. Check if already pending/processing
-    const [existing] = await db
-      .select()
-      .from(resumeOptimizations)
-      .where(and(eq(resumeOptimizations.userId, userId), eq(resumeOptimizations.jobSourceId, jobSourceId)));
-
-    if (existing && (existing.status === "pending" || existing.status === "processing")) {
-      return res.status(202).json({
-        success: true,
-        message: "Optimization is already in progress",
-        status: existing.status,
-      });
-    }
-
-    // 3. Queue Job
-    const jobId = \`\${userId}:\${jobSourceId}\`;
+    // 4. Queue Job (using idempotency key)
+    const jobId = idempotencyKey;
     await resumeOptimizationQueue.add(
       "optimizeResume",
-      { userId, jobSourceId, requestId },
+      { userId, platform, requestId },
       { jobId } // Deduplicates active jobs
     );
 
-    // 4. Upsert pending record
+    // 5. Upsert pending record
     await db
       .insert(resumeOptimizations)
-      .values({ userId, jobSourceId, status: "pending" })
+      .values({ userId, platform, status: "pending", updatedAt: new Date() })
       .onConflictDoUpdate({
-        target: [resumeOptimizations.userId, resumeOptimizations.jobSourceId],
-        set: { status: "pending", errorMessage: null },
+        target: [resumeOptimizations.userId, resumeOptimizations.platform],
+        set: { status: "pending", errorMessage: null, updatedAt: new Date() },
       });
 
-    logger.info("Resume optimization queued", { requestId, userId, jobSourceId });
+    logger.info("Resume optimization queued", { requestId, userId, platform });
 
     res.status(202).json({
       success: true,
@@ -65,55 +93,112 @@ export const optimizeResumeTrigger = async (req, res, next) => {
 
 export const getOptimizationStatus = async (req, res, next) => {
   try {
-    const userId = req.user.id;
-    const { jobSourceId } = req.params;
+    const userId    = req.userId;
+    const { platform } = req.params;
 
     const [optRecord] = await db
       .select()
       .from(resumeOptimizations)
-      .where(and(eq(resumeOptimizations.userId, userId), eq(resumeOptimizations.jobSourceId, jobSourceId)));
+      .where(and(eq(resumeOptimizations.userId, userId), eq(resumeOptimizations.platform, platform)));
 
     if (!optRecord) {
-      return res.status(404).json({ success: false, message: "Optimization not found for this job" });
+      return res.status(404).json({
+        success: false,
+        message: "Optimization not found for this platform",
+      });
     }
 
+    // ── Base response (always present) ────────────────────────────────────────
     const response = {
-      success: true,
-      status: optRecord.status,
+      success:   true,
+      platform:  optRecord.platform,
+      status:    optRecord.status,
       createdAt: optRecord.createdAt,
       updatedAt: optRecord.updatedAt,
     };
 
+    // ── Completed: return full resume build payload ────────────────────────────
     if (optRecord.status === "completed") {
-      response.scoreBefore = optRecord.scoreBefore;
-      response.scoreAfter = optRecord.scoreAfter;
-      
-      // Parse JSON fields safely
-      response.optimizedJson = optRecord.optimizedJson ? JSON.parse(optRecord.optimizedJson) : null;
-      response.scoreDetails = optRecord.scoreDetails ? JSON.parse(optRecord.scoreDetails) : null;
-      
-      response.keywordsMatched = optRecord.keywordsMatched;
-      response.keywordsMissing = optRecord.keywordsMissing;
-      response.keywordsAdded = optRecord.keywordsAdded;
+
+      // Parse all JSON fields safely
+      const optimizedResume    = optRecord.optimizedJson     ? JSON.parse(optRecord.optimizedJson)     : null;
+      const masterResume       = optRecord.masterResumeJson  ? JSON.parse(optRecord.masterResumeJson)  : null;
+      const scoreDetails       = optRecord.scoreDetails      ? JSON.parse(optRecord.scoreDetails)      : null;
+      const skillRecs          = optRecord.skillRecommendations ? JSON.parse(optRecord.skillRecommendations) : [];
+
+      response.atsScores = {
+        before:      optRecord.scoreBefore,
+        after:       optRecord.scoreAfter,
+        improvement: (optRecord.scoreAfter ?? 0) - (optRecord.scoreBefore ?? 0),
+        breakdown: {
+          before: scoreDetails?.before  ?? null,
+          after:  scoreDetails?.after   ?? null,
+        },
+      };
+
+      // Full optimized resume — all sections the AI produced
+      // masterResume is included as a fallback: frontend uses it for any section
+      // that may be null/empty in optimizedResume (edge case safety net)
+      response.optimizedResume = {
+        contact:           optimizedResume?.contact        ?? masterResume?.contact        ?? null,
+        summary:           optimizedResume?.summary        ?? masterResume?.summary        ?? null,
+        experience:        optimizedResume?.experience     ?? masterResume?.experience     ?? [],
+        projects:          optimizedResume?.projects       ?? masterResume?.projects       ?? [],
+        skills:            optimizedResume?.skills         ?? masterResume?.skills         ?? {},
+        education:         optimizedResume?.education      ?? masterResume?.education      ?? [],
+        certifications:    optimizedResume?.certifications ?? masterResume?.certifications ?? [],
+        optimizationNotes: optimizedResume?.optimizationNotes ?? [],
+      };
+
+      // Keyword tracking for the ATS keyword panel
+      response.keywords = {
+        matched: optRecord.keywordsMatched ?? [],
+        missing: optRecord.keywordsMissing ?? [],
+        added:   optRecord.keywordsAdded   ?? [],
+      };
+
+      // Structured "skills to learn" panel — skills the user doesn't have
+      // Each item: { skill, demandPct, jobCount, importance, learnMessage }
+      response.skillRecommendations = skillRecs;
+
+      // Platform context for the frontend summary card
+      response.platformInsights = {
+        topSkills:              scoreDetails?.topPlatformSkills        ?? [],
+        experienceDistribution: scoreDetails?.experienceDistribution   ?? {},
+        workModeDistribution:   scoreDetails?.workModeDistribution     ?? {},
+      };
+
+      // Structural improvement tips
+      response.recommendations = scoreDetails?.structuralRecommendations ?? [];
+
     } else if (optRecord.status === "failed") {
       response.errorMessage = optRecord.errorMessage;
     }
 
+    logger.info("Optimization status fetched", {
+      requestId: req.requestId,
+      userId,
+      platform,
+      status:    optRecord.status,
+    });
+
     res.json(response);
+
   } catch (err) {
     next(err);
   }
 };
 
+
 export const downloadPdf = async (req, res, next) => {
   try {
-    const userId = req.user.id;
-    const { jobSourceId } = req.params;
+    const userId = req.userId;
+    const { platform } = req.params;
 
     const [optRecord] = await db
       .select()
       .from(resumeOptimizations)
-      .where(and(eq(resumeOptimizations.userId, userId), eq(resumeOptimizations.jobSourceId, jobSourceId)));
+      .where(and(eq(resumeOptimizations.userId, userId), eq(resumeOptimizations.platform, platform)));
 
     if (!optRecord || optRecord.status !== "completed" || !optRecord.optimizedJson) {
       throw new AppError("Optimized resume not found or not yet complete", 404);
@@ -122,7 +207,7 @@ export const downloadPdf = async (req, res, next) => {
     const pdfBuffer = await generatePdf(JSON.parse(optRecord.optimizedJson));
 
     res.setHeader("Content-Type", "application/pdf");
-    res.setHeader("Content-Disposition", \`attachment; filename="Optimized_Resume_\${jobSourceId}.pdf"\`);
+    res.setHeader("Content-Disposition", `attachment; filename="Optimized_Resume_${platform}.pdf"`);
     res.send(pdfBuffer);
   } catch (err) {
     next(err);
@@ -131,13 +216,13 @@ export const downloadPdf = async (req, res, next) => {
 
 export const downloadDocx = async (req, res, next) => {
   try {
-    const userId = req.user.id;
-    const { jobSourceId } = req.params;
+    const userId = req.userId;
+    const { platform } = req.params;
 
     const [optRecord] = await db
       .select()
       .from(resumeOptimizations)
-      .where(and(eq(resumeOptimizations.userId, userId), eq(resumeOptimizations.jobSourceId, jobSourceId)));
+      .where(and(eq(resumeOptimizations.userId, userId), eq(resumeOptimizations.platform, platform)));
 
     if (!optRecord || optRecord.status !== "completed" || !optRecord.optimizedJson) {
       throw new AppError("Optimized resume not found or not yet complete", 404);
@@ -146,7 +231,7 @@ export const downloadDocx = async (req, res, next) => {
     const docxBuffer = await generateDocx(JSON.parse(optRecord.optimizedJson));
 
     res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.wordprocessingml.document");
-    res.setHeader("Content-Disposition", \`attachment; filename="Optimized_Resume_\${jobSourceId}.docx"\`);
+    res.setHeader("Content-Disposition", `attachment; filename="Optimized_Resume_${platform}.docx"`);
     res.send(docxBuffer);
   } catch (err) {
     next(err);

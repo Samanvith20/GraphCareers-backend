@@ -14,7 +14,7 @@ import { checkRedisHealth } from "./config/redis.js";
 import { httpRequestDuration, register } from "./lib/metrices.js";
 import logger from "./logger/logger.js";
 import Sentry from "./lib/sentry.js";
-import resumeRoutes from "./routes/resume.routes.js";
+
 import resumeIntelligenceRoutes from "./routes/resumeIntelligence.routes.js";
 
 dotenv.config();
@@ -46,15 +46,19 @@ app.use((req, res, next) => {
 app.use(express.urlencoded({ limit: '10mb', extended: true })); // ← add this too
 app.use(cookieParser());
 
+
+
 app.use(
   cors({
     origin: (origin, callback) => {
+      // Browserless clients (Postman, curl, server-to-server)
       if (!origin) return callback(null, true);
 
-      if (allowedOrigins.includes(origin)) {
-        return callback(null, true);
-      }
+      // Allowed origin
+      if (allowedOrigins.includes(origin)) return callback(null, true);
 
+      // Blocked origin — security event worth logging
+      logger.warn("CORS blocked request from unauthorized origin", { origin });
       return callback(new Error("Not allowed by CORS"));
     },
     credentials: true,
@@ -128,7 +132,7 @@ app.use("/api/career", careerprogressionRoutes);
 app.use("/api/job-applications", jobApplicationRoutes);
 app.use("/api/ai",aiRoutes)
 app.use("/api/payments",paymentRoutes)
-app.use("/api/resume", resumeRoutes);
+
 app.use("/api/resume-intelligence", resumeIntelligenceRoutes);
 
 app.get("/", (req, res) => {
@@ -142,26 +146,36 @@ app.get("/", (req, res) => {
 app.use((err, req, res, next) => {
   const status = err.status || 500;
 
-  // send to sentry
-  Sentry.captureException(err);
-
-  logger.error("Unhandled error", {
-    requestId: req.requestId,
-    message: err.message,
-    stack: err.stack,
-  });
-
-  // ✅ known errors (safe)
   if (err.isOperational) {
+    // Expected business-rule failures (4xx) — warn level, no Sentry
+    logger.warn("Operational error", {
+      requestId: req.requestId,
+      status,
+      name:    err.name,
+      message: err.message,
+      method:  req.method,
+      url:     req.url,
+    });
     return res.status(status).json({
-      error: err.message,
+      error:     err.message,
       requestId: req.requestId,
     });
   }
 
-  // ❌ unknown errors (hide details)
+  // Unexpected system failures — error level + Sentry
+  Sentry.captureException(err);
+  logger.error("Unhandled system error", {
+    requestId: req.requestId,
+    status,
+    name:    err.name,
+    message: err.message,
+    stack:   err.stack,
+    method:  req.method,
+    url:     req.url,
+  });
+
   return res.status(500).json({
-    error: "Something went wrong",
+    error:     "Something went wrong",
     requestId: req.requestId,
   });
 });
@@ -173,15 +187,26 @@ async function startServer() {
     const redisHealth = await checkRedisHealth();
 
     if (!redisHealth.healthy) {
-      logger.error("Redis health check failed", redisHealth.error);
+      logger.error("Redis health check failed — aborting startup", {
+        error:   redisHealth.error,
+        latency: redisHealth.latency,
+      });
       throw new Error("Redis initialization failed");
     }
 
     app.listen(PORT, () => {
-      logger.info("Server started", { port: PORT });
+      logger.info("Server started", {
+        port: PORT,
+        env:  process.env.BACKEND_NODE_ENV || 'production',
+        node: process.version,
+      });
     });
   } catch (err) {
-    logger.error("Server startup failed", err);
+    logger.error("Server startup failed — process exiting", {
+      name:    err.name,
+      message: err.message,
+      stack:   err.stack,
+    });
     process.exit(1);
   }
 }
@@ -192,11 +217,19 @@ startServer();
 
 process.on("unhandledRejection", (reason) => {
   Sentry.captureException(reason);
-  logger.error("Unhandled Rejection", reason);
+  logger.error("Unhandled promise rejection", {
+    name:    reason?.name,
+    message: reason?.message ?? String(reason),
+    stack:   reason?.stack,
+  });
 });
 
 process.on("uncaughtException", (err) => {
   Sentry.captureException(err);
-  logger.error("Uncaught Exception", err);
+  logger.error("Uncaught exception — process exiting", {
+    name:    err.name,
+    message: err.message,
+    stack:   err.stack,
+  });
   process.exit(1);
 });

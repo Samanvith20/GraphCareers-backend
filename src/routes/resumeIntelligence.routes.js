@@ -5,19 +5,29 @@ import {
   resumeIntelligenceTriggerLimiter, 
   resumeIntelligenceDeleteLimiter 
 } from "../middleware/rateLimiters/resumeIntelligence.limiters.js";
+import { applyRateLimit } from "../middleware/applyRateLimit.js";
 
 const router = express.Router();
 
 router.use(authMiddleware);
 
-// Trigger optimization for a specific job match
-router.post("/:jobSourceId/optimize", resumeIntelligenceTriggerLimiter, optimizeResumeTrigger);
+
+
+// Trigger optimization for a specific job platform
+router.post(
+  "/:platform/optimize", 
+  // applyRateLimit(
+  //   resumeIntelligenceTriggerLimiter,
+  //   (req) => `${req.user.id}:${req.params.platform}`
+  // ), 
+  optimizeResumeTrigger
+);
 
 // Check optimization status and get results
-router.get("/:jobSourceId/status", getOptimizationStatus);
+router.get("/:platform/status", getOptimizationStatus);
 
 // Downloads
-router.get("/:jobSourceId/download/pdf", downloadPdf);
-router.get("/:jobSourceId/download/docx", downloadDocx);
+router.get("/:platform/download/pdf", downloadPdf);
+router.get("/:platform/download/docx", downloadDocx);
 
 export default router;

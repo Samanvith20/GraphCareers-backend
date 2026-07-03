@@ -303,7 +303,11 @@ RETURN
         //console.log(`✅ Stored ${topJobs.length} job matches for user ${userId}`);
       });
     } catch (err) {
-      console.error("⚠️  Background RAG store failed:", err);
+      logger.error("Background job-match store failed", {
+        userId,
+        name:    err.name,
+        message: err.message,
+      });
     }
   });
 

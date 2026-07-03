@@ -53,6 +53,11 @@ export const paymentService = {
     });
 
     if (existing) {
+      logger.info("Order creation skipped — idempotency key already used", {
+        userId,
+        idempotencyKey,
+        existingOrderId: existing.razorpayOrderId,
+      });
       return {
         orderId: existing.razorpayOrderId,
         amount:  existing.amount,
@@ -116,7 +121,10 @@ export const paymentService = {
     if (payment.status !== "captured") {
       throw new Error("Payment not captured");
     }
-    logger.info("verify payment status:;",payment.status)
+    logger.info("Payment verified — status confirmed captured", {
+      orderId:   razorpay_order_id,
+      paymentId: razorpay_payment_id,
+    });
 
     // 3. Fallback recovery — only update if webhook hasn't already done it
     const dbPayment = await db.query.payments.findFirst({
@@ -133,6 +141,17 @@ export const paymentService = {
       await db.update(users)
         .set(proUpgradeFields())
         .where(eq(users.id, dbPayment.userId));
+
+      logger.info("User upgraded to Pro via payment verify fallback", {
+        userId:    dbPayment.userId,
+        orderId:   razorpay_order_id,
+        paymentId: razorpay_payment_id,
+      });
+    } else {
+      logger.info("Payment verify skipped — already processed by webhook", {
+        userId:  dbPayment.userId,
+        orderId: razorpay_order_id,
+      });
     }
 
     return { success: true };
@@ -160,7 +179,13 @@ export const paymentService = {
     });
 
     if (!payment)              return; // unknown order — ignore
-    if (payment.status === "paid") return; // already processed — idempotent
+    if (payment.status === "paid") {
+      logger.info("Webhook payment.captured skipped — already processed", {
+        orderId: entity.order_id,
+        paymentId: entity.id,
+      });
+      return; // already processed — idempotent
+    }
 
     await db.update(payments)
       .set({ status: "paid", razorpayPaymentId: entity.id })
@@ -170,6 +195,12 @@ export const paymentService = {
     await db.update(users)
       .set(proUpgradeFields())
       .where(eq(users.id, payment.userId));
+
+    logger.info("User upgraded to Pro via webhook", {
+      userId:    payment.userId,
+      orderId:   entity.order_id,
+      paymentId: entity.id,
+    });
   },
 };
 

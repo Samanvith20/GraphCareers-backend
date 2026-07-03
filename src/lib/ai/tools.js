@@ -3,6 +3,7 @@ import {
   fetchMatchedJobs,
   fetchCareerProgression,
 } from "../../services/chat.services.js";
+import logger from "../../logger/logger.js";
 
 export const toolDefinitions = [
   {
@@ -52,7 +53,7 @@ export const toolDefinitions = [
 ];
 
 export async function executeTool(name, args, userId) {
-  console.log(`[tool] executing: ${name}`, { userId, ...args });
+  logger.debug("[tool] executing", { tool: name, userId });
   try {
     switch (name) {
       case "getUserData":
@@ -65,7 +66,11 @@ export async function executeTool(name, args, userId) {
         return { error: `Unknown tool: ${name}` };
     }
   } catch (err) {
-    console.error(`[tool] ${name} failed:`, err.message);
+    logger.error("[tool] execution failed", {
+      tool:    name,
+      userId,
+      message: err.message,
+    });
     return { error: `${name} failed: ${err.message}` };
   }
 }

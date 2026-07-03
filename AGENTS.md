@@ -290,3 +290,65 @@ Before approving modifications, verify the following checklist:
 - [ ] **Structured Logging**: Are all console writes avoided in favor of Winston structured logger logs containing request metadata (`requestId`)?
 - [ ] **Idempotent Operations**: Do database inserts on unique tables handle conflicts appropriately (via `onConflictDoUpdate`)?
 - [ ] **Atomicity**: Are multiple sequential queries run inside transaction blocks to prevent inconsistent database state?
+
+---
+
+## ?? 18. Resume Optimization Pipeline & Testing Flow
+
+When building, modifying, or debugging the AI Resume Optimization pipeline, agents should understand the following complete execution flow:
+
+1. **User & Job Match Resolution (Postgres + Neo4j):**
+   - The user requests optimization for a specific target job. 
+   - We verify the user exists and pull their current parsed \master\ resume (from the \esumes\ table in PostgreSQL).
+   - We query Neo4j via \jobs.service.js\ to retrieve the exact requirements, difficulty, and skills for that target job, ensuring the job is cached in the \job_matches\ PostgreSQL table.
+
+2. **Fetching Targeted Trends (Neo4j):**
+   - We invoke \computeTargetedTrends\ in \	argetedTrend.service.js\.
+   - *CRITICAL RULE:* Always use the custom \	oNumber()\ helper from \utils.js\ when resolving Neo4j counts and \Integer\ types to avoid \	oNumber is not a function\ exceptions on native JS types.
+
+3. **Pre-Optimization Scoring:**
+   - The original resume is scored against the job requirements using the \scoreResume()\ utility to set a baseline ATS score.
+
+4. **AI Generation Pipeline (LLM):**
+   - \esumeOptimizer.service.js\ formats the prompt with the Neo4j trends, the target job context, and the master resume's structured JSON.
+   - It invokes the AI model via OpenRouter (e.g. \openai/gpt-4o-mini\).
+   - *CRITICAL RULE:* Ensure template strings inside \esumeOptimizer.service.js\ for prompts do NOT contain escaped backticks (\\\\\) that break the compiler.
+
+5. **Post-Processing & Validation:**
+   - The output is sanitized to prevent AI hallucinations (stripping companies or skills not present in the original resume).
+   - The "Score After" is computed. 
+   - Missing and Added keywords are calculated.
+   - The resulting JSON and metadata are pushed into the \esume_optimizations\ PostgreSQL table, and credits are deducted.
+
+**Testing the Flow Locally:**
+To test the full flow against live DB connections (Postgres + Neo4j) without standing up the Express HTTP server, you can execute the standalone script:
+\
+ode src/scripts/testFullFlow.js\
+This bypasses controllers and tests the direct service-layer execution.
+
+---
+
+## ?? 19. Platform-Wide Resume Optimization (Architecture Update)
+
+Based on architectural reviews, **Resume Optimization is no longer scoped to a single Job ID**. Instead, it is scoped to a **Platform** (e.g. \
+aukri\, \instahyre\).
+
+**The Updated Platform-Wide Flow:**
+1. **User Request:** User requests to optimize their resume for a specific platform (e.g. \
+aukri\).
+2. **Top 100 Matching (Neo4j):** We run a Cypher query filtering by \	oLower(j.source) = \ to fetch the top 100 jobs that best match the user's current skills and experience.
+3. **Platform Trend Aggregation:** We pass these 100 \jobSourceIds\ into \computeTargetedTrends()\ to extract the most statistically significant skills required across the entire platform for their role.
+4. **LLM Generation:** The AI (via OpenRouter) receives the user's master resume and this aggregated platform data to tailor the resume to pass ATS generally on that specific platform.
+5. **Testing:** This new flow can be verified locally using \
+ode src/scripts/testPlatformOptimizationFlow.js\ without needing the Express HTTP server running.
+
+---
+
+## 🛡️ 20. Advanced Pipeline Safety & Rate Limiting
+
+To maintain robust performance and prevent runaway compute costs on AI and Graph queries, the backend enforces strict policies for the Resume Optimization endpoints:
+
+1. **Idempotency & Deduplication**: The queue utilizes an `Idempotency-Key` (defaulting to `${userId}-${platform}`) as the BullMQ `jobId`. This natively prevents duplicate jobs from being queued if a user rapidly double-clicks the optimize button.
+2. **Global Rate Limiting**: A user is restricted to exactly **ONE** active optimization (status `"pending"` or `"processing"`) across all platforms globally. Attempting to start a second will return a `429 Too Many Requests`.
+3. **6-Hour Cache Rule**: Resume optimizations for identical platforms within 6 hours bypass the entire BullMQ queue and immediately return `200 OK` from the PostgreSQL cache, skipping credit deductions.
+4. **Strict Timeout Failsafes**: All Neo4j queries execute with a strict 15-second `transactionConfig` timeout. Vercel AI SDK `generateText` requests are wrapped in an `AbortController` (120 seconds). Failures immediately mark the database job as `"failed"` to unlock the user from pending deadlocks.

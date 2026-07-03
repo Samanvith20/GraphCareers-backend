@@ -29,7 +29,7 @@ export async function getMatchedJobs(req, res,next) {
     next(err);
   }
 }
-export async function ingestJobsBatch(req, res) {
+export async function ingestJobsBatch(req, res, next) {
   try {
     const jobsInput = req.body.jobs;
 
@@ -78,15 +78,22 @@ export async function ingestJobsBatch(req, res) {
     const inserted = await db
       .insert(jobs)
       .values(values)
-     // .onConflictDoNothing({ target: jobs.sourceJobId }) // or update if needed
       .returning({ id: jobs.sourceJobId });
 
     const successIds = inserted.map((j) => j.id);
 
+    logger.info("Job batch ingested", {
+      requestId: req.requestId,
+      count: successIds.length,
+    });
+
     res.json({ success: true, successIds });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: "Batch ingest failed" });
+    logger.error("Job batch ingest failed", {
+      requestId: req.requestId,
+      name:    err.name,
+      message: err.message,
+    });
+    next(err);
   }
 }
-

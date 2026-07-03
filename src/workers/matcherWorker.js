@@ -26,11 +26,11 @@ async function runMatcherWorker() {
   const lockValue = await acquireLock(lockKey, 7200);
 
   if (!lockValue) {
-    logger.warn("⚠️ Matcher already running");
+    logger.warn("Matcher worker already running — skipping this cron tick", { lockKey });
     return;
   }
 
-  logger.info("🚀 Matcher Worker Started");
+  logger.info("Matcher worker started");
 
   let lastId = null;
 
@@ -50,15 +50,24 @@ async function runMatcherWorker() {
           try {
             await getMatchedJobsService({ userId: user.id });
           } catch (err) {
-            logger.error(`Matcher failed for user ${user.id}`, err);
+            logger.error("Matcher failed for user", {
+              userId: user.id,
+              name:    err.name,
+              message: err.message,
+            });
           }
         })
       );
 
+      logger.debug("Matcher batch processed", {
+        batchSize: batchUsers.length,
+        lastId:    batchUsers[batchUsers.length - 1].id,
+      });
+
       lastId = batchUsers[batchUsers.length - 1].id;
     }
 
-    logger.info("✅ Matcher Worker Completed");
+    logger.info("Matcher worker completed successfully");
   } finally {
     await releaseLock(lockKey, lockValue);
   }

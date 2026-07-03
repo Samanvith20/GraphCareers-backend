@@ -349,19 +349,30 @@ export async function parseResumeWithAIService(userId, requestId) {
         totalTokens: aiUsage.totalTokens,
       });
     } catch (err) {
-      logger.error("Resume parsing failed", err);
+      logger.error("Resume parse DB transaction failed", {
+        userId,
+        requestId,
+        name:    err.name,
+        message: err.message,
+      });
 
-     await db.update(resumes)
-  .set({
-    status: "failed",
-    errorMessage: err.message,
-  })
-  .where(eq(resumes.userId, userId)); 
+      await db.update(resumes)
+        .set({
+          status: "failed",
+          errorMessage: err.message,
+        })
+        .where(eq(resumes.userId, userId));
+
+      throw err; // propagate so outer catch marks it failed too
     }
 
-    logger.info("Resume AI parsing completed successfully", {
+    logger.info("Resume AI parsing completed", {
       userId,
       requestId,
+      inputTokens:     aiUsage?.inputTokens,
+      outputTokens:    aiUsage?.outputTokens,
+      totalTokens:     aiUsage?.totalTokens,
+      creditsConsumed: 2,
     });
 
     return cleanedData;

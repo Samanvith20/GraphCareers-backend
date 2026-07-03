@@ -22,7 +22,7 @@ Sentry.setTag("requestId", requestId);
       jobId: job.id,
       userId,
     });
-    logger.info("Parsing resume for user", { userId, requestId });
+    logger.info("Resume parse job started", { jobId: job.id, userId, fileType, requestId });
 
     try {
       const buffer = await fs.readFile(filePath);
@@ -65,14 +65,9 @@ Sentry.setTag("requestId", requestId);
           }
         });
 
-      logger.info("Pushing job to AI queue", { userId, requestId },
-          { jobId: userId }
-
-      );
-
       await resumeQueue.add("resumeAI", { userId, requestId });
 
-      logger.info("Job pushed to AI queue", { userId, requestId });
+      logger.info("Resume text extracted — AI parse job queued", { jobId: job.id, userId, requestId });
 
     } catch (err) {
       // ✅ Also upsert here — catch block same problem if row doesn't exist
@@ -97,16 +92,18 @@ Sentry.setTag("requestId", requestId);
         });
       }
 
-      logger.error("Resume parsing failed", {
-        error: err.message,
+      logger.error("Resume parse job failed", {
+        jobId: job.id,
         userId,
         requestId,
+        name:    err.name,
+        message: err.message,
       });
     } finally {
       try {
         await fs.unlink(filePath);
       } catch {
-        console.warn("Already deleted:", filePath);
+        logger.warn("Temp file already removed or missing", { filePath, userId });
       }
     }
   },

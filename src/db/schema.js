@@ -221,20 +221,30 @@ export const resumeOptimizations = pgTable(
       .references(() => users.id, { onDelete: "cascade" })
       .notNull(),
 
-    jobSourceId: varchar("job_source_id", { length: 255 }).notNull(),
+    platform: varchar("platform", { length: 255 }).notNull(),
 
     // ATS scores (0-100)
     scoreBefore: integer("score_before").default(0),
     scoreAfter:  integer("score_after").default(0),
 
-    // What the AI produced (structured JSON stored as text)
-    // Shape: { summary, experience: [{employer,title,startDate,endDate,bullets}], skills:{technical,soft}, optimizationNotes: string[] }
+    // AI-optimized resume content (all sections)
+    // Shape: { contact, summary, experience, projects, skills, education, certifications, optimizationNotes }
     optimizedJson: text("optimized_json"),
 
-    // Snapshot of which keywords were matched/missing at time of optimization
+    // Original master resume snapshot — used by frontend as fallback for sections AI may not fully cover
+    masterResumeJson: text("master_resume_json"),
+
+    // Keyword tracking (flat arrays)
     keywordsMatched: text("keywords_matched").array().default([]),
     keywordsMissing: text("keywords_missing").array().default([]),
-    keywordsAdded:   text("keywords_added").array().default([]),   // newly integrated by AI
+    keywordsAdded:   text("keywords_added").array().default([]),
+
+    // Structured skill recommendations for skills the user DOESN'T have
+    // Shape: [{ skill, pct, importance: "critical"|"high"|"medium", learnMessage }]
+    skillRecommendations: text("skill_recommendations"),
+
+    // Score breakdown + structural recommendations
+    scoreDetails: text("score_details"),
 
     status: resumeOptimizationStatusEnum("status").default("pending"),
     errorMessage: varchar("error_message", { length: 255 }),
@@ -247,14 +257,14 @@ export const resumeOptimizations = pgTable(
   (table) => ({
     userIdx: index("resume_opt_user_idx").on(table.userId),
 
-    // One cached optimization per (user, job) — re-use within 24h
-    // To invalidate: delete this row when user re-uploads resume
-    uniqueUserJob: uniqueIndex("resume_opt_user_job_idx").on(
+    // One cached optimization per (user, platform) — re-use within 6h
+    uniqueUserPlatform: uniqueIndex("resume_opt_user_platform_idx").on(
       table.userId,
-      table.jobSourceId
+      table.platform
     ),
   })
 );
+
 
 
 export const jobs = pgTable(

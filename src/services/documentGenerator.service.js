@@ -44,7 +44,7 @@ export async function generatePdf(optimizedJson) {
 
         experience.forEach((exp) => {
           doc.fontSize(11).font("Helvetica-Bold").text(exp.title || "", { continued: true });
-          doc.font("Helvetica").text(\` | \${exp.company || ""}\`);
+          doc.font("Helvetica").text(` | ${exp.company || ""}`);
           
           const dates = [exp.startDate, exp.endDate].filter(Boolean).join(" - ");
           if (dates) {
@@ -53,7 +53,7 @@ export async function generatePdf(optimizedJson) {
           doc.moveDown(0.2);
 
           (exp.bullets || []).forEach((bullet) => {
-            doc.fontSize(10).font("Helvetica").text(\`• \${bullet}\`, { indent: 15, align: "justify" });
+            doc.fontSize(10).font("Helvetica").text(`• ${bullet}`, { indent: 15, align: "justify" });
           });
           doc.moveDown(0.8);
         });
@@ -67,7 +67,7 @@ export async function generatePdf(optimizedJson) {
 
         for (const [category, skillList] of Object.entries(skills)) {
           if (Array.isArray(skillList) && skillList.length > 0) {
-            doc.fontSize(10).font("Helvetica-Bold").text(\`\${category}: \`, { continued: true });
+            doc.fontSize(10).font("Helvetica-Bold").text(`${category}: `, { continued: true });
             doc.font("Helvetica").text(skillList.join(", "));
           }
         }
@@ -81,7 +81,7 @@ export async function generatePdf(optimizedJson) {
         doc.moveDown(0.5);
 
         education.forEach((edu) => {
-          doc.fontSize(11).font("Helvetica-Bold").text(\`\${edu.degree || ""} \${edu.field ? "in " + edu.field : ""}\`);
+          doc.fontSize(11).font("Helvetica-Bold").text(`${edu.degree || ""} ${edu.field ? "in " + edu.field : ""}`);
           doc.fontSize(10).font("Helvetica").text(edu.institution || "");
           const dates = [edu.startDate, edu.endDate].filter(Boolean).join(" - ");
           if (dates) {
@@ -141,7 +141,7 @@ export async function generateDocx(optimizedJson) {
           new Paragraph({
             children: [
               new TextRun({ text: exp.title || "", bold: true }),
-              new TextRun({ text: \` | \${exp.company || ""}\` }),
+              new TextRun({ text: ` | ${exp.company || ""}` }),
             ],
           })
         );
@@ -163,7 +163,7 @@ export async function generateDocx(optimizedJson) {
           sections.push(
             new Paragraph({
               children: [
-                new TextRun({ text: \`\${category}: \`, bold: true }),
+                new TextRun({ text: `${category}: `, bold: true }),
                 new TextRun({ text: skillList.join(", ") }),
               ],
             })
@@ -178,7 +178,7 @@ export async function generateDocx(optimizedJson) {
       education.forEach((edu) => {
         sections.push(
           new Paragraph({
-            text: \`\${edu.degree || ""} \${edu.field ? "in " + edu.field : ""}\`,
+            text: `${edu.degree || ""} ${edu.field ? "in " + edu.field : ""}`,
             bold: true,
           })
         );

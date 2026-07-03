@@ -19,8 +19,7 @@ if (
 }
 
 redis.on('ready', () => {
-  logger.info('ioredis is ready and connected to Redis.');
- 
+  logger.info('Redis connection established and ready');
 });
 
 redis.on('error', (err) => {
@@ -29,8 +28,7 @@ redis.on('error', (err) => {
 });
 
 redis.on('reconnecting', () => {
-  logger.error('ioredis is reconnecting to Redis...');
-  //console.log('ioredis is reconnecting to Redis...');
+  logger.warn('Redis reconnecting — connection lost, retrying...');
 });
 
 // Health check function

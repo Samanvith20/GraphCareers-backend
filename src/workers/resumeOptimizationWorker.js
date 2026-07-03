@@ -1,21 +1,22 @@
+import "dotenv/config";
 import { Worker } from "bullmq";
 import { connection } from "../queue/connection.js";
 import logger from "../logger/logger.js";
-import { optimizeResumeForJob } from "../services/resumeOptimizer.service.js";
+import { optimizeResumeForPlatform } from "../services/resumeOptimizer.service.js";
 import Sentry from "../lib/sentry.js";
 
 const worker = new Worker(
   "resumeOptimization",
   async (job) => {
-    const { userId, jobSourceId, requestId } = job.data;
+    const { userId, platform, requestId } = job.data;
     logger.info("Processing targeted resume optimization job", {
       jobId: job.id,
       userId,
-      jobSourceId,
+      platform,
       requestId,
     });
 
-    await optimizeResumeForJob({ userId, jobSourceId, requestId });
+    await optimizeResumeForPlatform({ userId, platform, requestId });
   },
   {
     connection,
@@ -27,7 +28,7 @@ worker.on("completed", (job) => {
   logger.info("Resume optimization job completed successfully", {
     jobId: job.id,
     userId: job.data.userId,
-    jobSourceId: job.data.jobSourceId,
+    platform: job.data.platform,
   });
 });
 

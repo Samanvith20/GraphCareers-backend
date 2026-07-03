@@ -2,6 +2,7 @@ import { getNeo4jSession } from "../db/neo4j/session.js";
 import neo4j from "neo4j-driver";
 import logger from "../logger/logger.js";
 import { AppError } from "../lib/AppError.js";
+import { toNumber } from "../lib/utils.js";
 
 /**
  * Computes targeted skill trends based strictly on the jobs a user actually matched with.
@@ -33,8 +34,8 @@ export async function computeTargetedTrends(jobSourceIds, requestId) {
     const totalJobs = jobSourceIds.length;
     const topSkills = skillResult.records.map((r) => ({
       skill: r.get("skill") || "",
-      count: r.get("jobCount")?.toNumber() ?? 0,
-      pct: totalJobs > 0 ? Math.round(((r.get("jobCount")?.toNumber() ?? 0) * 100) / totalJobs) : 0,
+      count: toNumber(r.get("jobCount")) ?? 0,
+      pct: totalJobs > 0 ? Math.round((toNumber(r.get("jobCount")) ?? 0) * 100 / totalJobs) : 0,
     })).filter((s) => s.skill);
 
     // 2. Fetch experience & work mode distribution for these jobs
@@ -53,7 +54,7 @@ export async function computeTargetedTrends(jobSourceIds, requestId) {
     let expJobCount = 0;
 
     for (const r of metadataResult.records) {
-      const minExp = r.get("minExp")?.toNumber();
+      const minExp = toNumber(r.get("minExp"));
       const mode = r.get("workMode");
 
       if (mode) {

@@ -25,14 +25,14 @@ async function releaseLock(key, value) {
 
 async function runEmailWorker() {
   const lockKey = "lock:email";
-  const lockValue = await acquireLock(lockKey, 7200); 
+  const lockValue = await acquireLock(lockKey, 7200);
 
-  // if (!lockValue) {
-  //   logger.warn("⚠️ Email worker already running");
-  //   return;
-  // }
+  if (!lockValue) {
+    logger.warn("Email worker already running — skipping this cron tick", { lockKey });
+    return;
+  }
 
-  logger.info("📧 Email Worker Started");
+  logger.info("Email worker started");
 
   let lastId = null;
 
@@ -98,15 +98,18 @@ const jobs = await db
 
           const topJobs = jobs.slice(0, 2);
 
-          // 📩 Send email
           await sendEmail({
             to: user.email,
             subject: `${jobs.length} new job matches for your profile`,
             html: generateEmailHTML(user.name, topJobs),
           });
 
+          logger.info("Job match email sent", {
+            userId: user.id,
+            jobCount: jobs.length,
+          });
 
-          // 🧠 Mark as emailed
+          // Mark as emailed
           await db.transaction(async (tx) => {
             for (const job of jobs) {
               await tx
@@ -132,14 +135,18 @@ const jobs = await db
           });
 
         } catch (err) {
-          logger.error(`Email failed for user ${user.id}`, err);
+          logger.error("Failed to send job match email", {
+            userId: user.id,
+            name:    err.name,
+            message: err.message,
+          });
         }
       }
 
       lastId = batchUsers[batchUsers.length - 1].id;
     }
 
-    logger.info("✅ Email Worker Completed");
+    logger.info("Email worker completed successfully");
   } finally {
     await releaseLock(lockKey, lockValue);
   }
