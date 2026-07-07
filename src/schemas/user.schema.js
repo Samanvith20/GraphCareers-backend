@@ -19,7 +19,14 @@ export const ResumeSchema = z.object({
 
   bio: z.string().nullable(),
 
-  skills: z.array(z.string()),
+  skills: z.object({
+    "Frontend": z.array(z.string()).optional(),
+    "Backend": z.array(z.string()).optional(),
+    "Database": z.array(z.string()).optional(),
+    "DevOps & Cloud": z.array(z.string()).optional(),
+    "AI & Data Science": z.array(z.string()).optional(),
+    "Other Tools": z.array(z.string()).optional(),
+  }),
 
   experience: z.array(
     z.object({
@@ -43,8 +50,12 @@ export const ResumeSchema = z.object({
   education: z.array(
     z.object({
       degree: z.string().nullable(),
+      field: z.string().nullable(),
       institution: z.string().nullable(),
-      year: z.string().nullable(),
+      startDate: z.string().nullable(),
+      endDate: z.string().nullable(),
+      gpa: z.string().nullable(),
+      location: z.string().nullable(),
     })
   ),
 

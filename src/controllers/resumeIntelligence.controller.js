@@ -37,12 +37,13 @@ export const optimizeResumeTrigger = async (req, res, next) => {
       }
     }
 
-    // 2. 6-Hour Cache Rule (Cost Savings)
+    // 2. 6-Hour Cache Rule (Cost Savings) - TEMPORARILY DISABLED FOR TESTING
     const [existing] = await db
       .select()
       .from(resumeOptimizations)
       .where(and(eq(resumeOptimizations.userId, userId), eq(resumeOptimizations.platform, platform)));
 
+    
     if (existing && existing.status === "completed" && existing.updatedAt) {
       const hoursSinceOptimization = (new Date() - new Date(existing.updatedAt)) / (1000 * 60 * 60);
       if (hoursSinceOptimization < 6) {
@@ -54,6 +55,7 @@ export const optimizeResumeTrigger = async (req, res, next) => {
         });
       }
     }
+    
 
     // 3. Check Credits Before Proceeding
     const [user] = await db.select().from(users).where(eq(users.id, userId));
@@ -204,10 +206,14 @@ export const downloadPdf = async (req, res, next) => {
       throw new AppError("Optimized resume not found or not yet complete", 404);
     }
 
-    const pdfBuffer = await generatePdf(JSON.parse(optRecord.optimizedJson));
+    const optimizedJson = JSON.parse(optRecord.optimizedJson);
+    const userName = (optimizedJson.contact?.name || "Candidate").replace(/[^a-zA-Z0-9]/g, "_");
+    const filename = `${userName}_${platform}_Resume.pdf`;
+
+    const pdfBuffer = await generatePdf(optimizedJson);
 
     res.setHeader("Content-Type", "application/pdf");
-    res.setHeader("Content-Disposition", `attachment; filename="Optimized_Resume_${platform}.pdf"`);
+    res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
     res.send(pdfBuffer);
   } catch (err) {
     next(err);
@@ -228,10 +234,14 @@ export const downloadDocx = async (req, res, next) => {
       throw new AppError("Optimized resume not found or not yet complete", 404);
     }
 
-    const docxBuffer = await generateDocx(JSON.parse(optRecord.optimizedJson));
+    const optimizedJson = JSON.parse(optRecord.optimizedJson);
+    const userName = (optimizedJson.contact?.name || "Candidate").replace(/[^a-zA-Z0-9]/g, "_");
+    const filename = `${userName}_${platform}_Resume.docx`;
+
+    const docxBuffer = await generateDocx(optimizedJson);
 
     res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.wordprocessingml.document");
-    res.setHeader("Content-Disposition", `attachment; filename="Optimized_Resume_${platform}.docx"`);
+    res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
     res.send(docxBuffer);
   } catch (err) {
     next(err);

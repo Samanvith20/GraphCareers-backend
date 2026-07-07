@@ -116,10 +116,12 @@ function validateAndSanitize(parsed, masterResume, requestId) {
   // Contact — always use master (never change name/email/phone)
   if (masterJson?.contact) {
     parsed.contact = { ...masterJson.contact, ...parsed.contact };
-    // Hard override: never change name or email from original
-    if (masterJson.contact.name)  parsed.contact.name  = masterJson.contact.name;
-    if (masterJson.contact.email) parsed.contact.email = masterJson.contact.email;
-    if (masterJson.contact.phone) parsed.contact.phone = masterJson.contact.phone;
+    // Hard override: never change contact info from original
+    if (masterJson.contact.name)     parsed.contact.name     = masterJson.contact.name;
+    if (masterJson.contact.email)    parsed.contact.email    = masterJson.contact.email;
+    if (masterJson.contact.phone)    parsed.contact.phone    = masterJson.contact.phone;
+    if (masterJson.contact.linkedin) parsed.contact.linkedin = masterJson.contact.linkedin;
+    if (masterJson.contact.github)   parsed.contact.github   = masterJson.contact.github;
   }
 
   // Experience — if AI returned 0 entries, fall back to master entries
@@ -132,19 +134,32 @@ function validateAndSanitize(parsed, masterResume, requestId) {
   if ((!parsed.education || parsed.education.length === 0) && masterJson?.education?.length) {
     parsed.education = masterJson.education;
   }
+  if (Array.isArray(parsed.education) && parsed.education.length === 0) {
+    delete parsed.education;
+  }
 
   // Projects — if AI dropped it, restore from master
   if ((!parsed.projects || parsed.projects.length === 0) && masterJson?.projects?.length) {
     parsed.projects = masterJson.projects;
+  }
+  if (Array.isArray(parsed.projects) && parsed.projects.length === 0) {
+    delete parsed.projects;
   }
 
   // Certifications — if AI dropped it, restore from master
   if ((!parsed.certifications || parsed.certifications.length === 0) && masterJson?.certifications?.length) {
     parsed.certifications = masterJson.certifications;
   }
+  if (Array.isArray(parsed.certifications) && parsed.certifications.length === 0) {
+    delete parsed.certifications;
+  }
+
+  if (Array.isArray(parsed.experience) && parsed.experience.length === 0) {
+    delete parsed.experience;
+  }
 
   // ── 3. Skills section: ONLY include skills the user actually has ────────────
-  // Do NOT add skills that aren't in the original. Clean up empty categories.
+  // AND RESTORE ANY DROPPED SKILLS so keyword score never drops
   if (parsed.skills && typeof parsed.skills === "object") {
     for (const category of Object.keys(parsed.skills)) {
       if (Array.isArray(parsed.skills[category])) {
@@ -168,11 +183,39 @@ function validateAndSanitize(parsed, masterResume, requestId) {
         parsed.skills[category] = originalSkillsFiltered;
       }
     }
-    // Remove empty categories
+  } else {
+    parsed.skills = {};
+  }
+
+  // Restore any skills from masterJson that AI dropped
+  if (masterJson?.skills) {
+    const aiSkills = new Set(
+      Object.values(parsed.skills)
+        .flat()
+        .map((s) => s.toLowerCase().trim())
+    );
+
+    for (const [category, skills] of Object.entries(masterJson.skills)) {
+      if (!Array.isArray(skills)) continue;
+      for (const skill of skills) {
+        if (!aiSkills.has(skill.toLowerCase().trim())) {
+          if (!parsed.skills[category]) parsed.skills[category] = [];
+          parsed.skills[category].push(skill);
+          logger.info("Restored dropped skill to prevent score drop", { skill, category, requestId });
+        }
+      }
+    }
+  }
+
+  // Remove empty categories
+  if (parsed.skills) {
     for (const category of Object.keys(parsed.skills)) {
       if (!parsed.skills[category]?.length) {
         delete parsed.skills[category];
       }
+    }
+    if (Object.keys(parsed.skills).length === 0) {
+      delete parsed.skills;
     }
   }
 
@@ -201,11 +244,12 @@ ABSOLUTE RULES — NEVER VIOLATE
 2. NEVER add skills or technologies not in the original resume.
 3. NEVER fabricate metrics, percentages, or achievements.
 4. NEVER add certifications not explicitly in the original.
-5. Keep all company names, job titles, start/end dates EXACTLY as given.
-6. You MAY: improve bullet phrasing, strengthen summary tone, surface existing keywords more prominently, reorder skill categories.
+5. Keep all company names, job titles, start/end dates EXACTLY as given in the original resume.
+6. You MUST actively REWRITE and OPTIMIZE the summary and bullet points. Use stronger action verbs and surface existing keywords more prominently based on the platform context.
 7. Return ONLY valid JSON — no markdown fences, no prose outside JSON.
 8. CRITICAL: You MUST include ALL experience entries, ALL projects, ALL education from the original. Do NOT drop, truncate, or summarize any sections.
 9. For the skills section: ONLY include skills present in the original resume. Do NOT add any new skill.
+10. CRITICAL: For all fields that should be preserved (names, emails, urls, dates, etc.), output the ACTUAL values from the original resume. DO NOT output placeholder text like "KEEP EXACTLY AS ORIGINAL". If a field does not exist in the original, omit it or set it to null.
 
 ══════════════════════════════════════════════════
 PLATFORM CONTEXT (use to optimize keyword positioning)
@@ -219,56 +263,57 @@ ${JSON.stringify(masterResumeJson, null, 2)}
 
 ══════════════════════════════════════════════════
 OUTPUT — RETURN EXACTLY THIS JSON STRUCTURE
-(preserve all original data, only enhance phrasing)
+(Populate with the actual rewritten resume data. NO placeholders.)
 ══════════════════════════════════════════════════
 {
   "contact": {
-    "name": "KEEP EXACTLY AS ORIGINAL",
-    "email": "KEEP EXACTLY AS ORIGINAL",
-    "phone": "KEEP EXACTLY AS ORIGINAL",
-    "location": "KEEP EXACTLY AS ORIGINAL",
-    "linkedin": "KEEP EXACTLY AS ORIGINAL",
-    "github": "KEEP EXACTLY AS ORIGINAL"
+    "name": "Actual name from original",
+    "email": "Actual email from original",
+    "phone": "Actual phone from original (or null)",
+    "location": "Actual location from original (or null)",
+    "linkedin": "Actual linkedin from original (or null)",
+    "github": "Actual github from original (or null)"
   },
-  "summary": "2-4 sentences. Optimized professional summary using platform-relevant keywords from the candidate's actual background.",
+  "summary": "2-4 sentences. Actively rewritten and optimized professional summary using platform-relevant keywords from the candidate's actual background.",
   "experience": [
     {
-      "company": "EXACT ORIGINAL COMPANY NAME",
-      "title": "EXACT ORIGINAL JOB TITLE",
-      "startDate": "EXACT ORIGINAL DATE",
-      "endDate": "EXACT ORIGINAL DATE (or Present)",
-      "location": "EXACT ORIGINAL LOCATION",
-      "bullets": ["Rewritten action-impact bullets using stronger verbs and ATS keywords from original content"]
+      "company": "Actual original company name",
+      "title": "Actual original job title",
+      "startDate": "Actual original start date",
+      "endDate": "Actual original end date (or Present)",
+      "location": "Actual original location",
+      "bullets": ["Actively rewritten action-impact bullets using stronger verbs and ATS keywords from original content"]
     }
   ],
   "projects": [
     {
-      "name": "EXACT ORIGINAL PROJECT NAME",
+      "name": "Actual original project name",
       "techStack": ["Only technologies mentioned in the original"],
-      "url": "KEEP EXACTLY AS ORIGINAL",
-      "date": "KEEP AS ORIGINAL",
-      "bullets": ["Enhanced description using keywords the platform values"]
+      "url": "Actual url from original (or null)",
+      "date": "Actual date from original (or null)",
+      "bullets": ["Actively rewritten description using keywords the platform values"]
     }
   ],
   "skills": {
-    "Languages": ["Only languages from original resume"],
-    "Frameworks": ["Only frameworks from original resume"],
-    "Databases": ["Only databases from original resume"],
-    "Tools & DevOps": ["Only tools from original resume"],
-    "Other": ["Any other technical skills from original resume"]
+    "Frontend": ["Frontend technologies from original resume (e.g. React, HTML, CSS)"],
+    "Backend": ["Backend technologies from original resume (e.g. Node.js, Python, Java)"],
+    "Database": ["Databases from original resume (e.g. PostgreSQL, MongoDB, Redis)"],
+    "DevOps & Cloud": ["Cloud platforms and devops tools (e.g. AWS, Docker, Kubernetes)"],
+    "AI & Data Science": ["AI/ML tools from original resume (e.g. PyTorch, Pandas, OpenAI)"],
+    "Other Tools": ["Any other technical tools from original resume"]
   },
   "education": [
     {
-      "institution": "EXACT ORIGINAL INSTITUTION",
-      "degree": "EXACT ORIGINAL DEGREE",
-      "field": "EXACT ORIGINAL FIELD",
-      "startDate": "EXACT ORIGINAL",
-      "endDate": "EXACT ORIGINAL",
-      "gpa": "KEEP AS ORIGINAL",
-      "location": "KEEP AS ORIGINAL"
+      "institution": "Actual original institution",
+      "degree": "Actual original degree",
+      "field": "Actual original field",
+      "startDate": "Actual original start date",
+      "endDate": "Actual original end date",
+      "gpa": "Actual gpa from original (or null)",
+      "location": "Actual location from original (or null)"
     }
   ],
-  "certifications": ["EXACT ORIGINAL CERTIFICATIONS ONLY"],
+  "certifications": ["Actual original certifications ONLY"],
   "optimizationNotes": [
     "Specific explanation of each change made — e.g., Moved Docker to top of Tools to align with platform ATS pattern"
   ]
@@ -455,6 +500,12 @@ OPTIMIZATION GOAL:
       trends,
       experienceMonths: expMonths,
     });
+
+    // Ensure the ATS score NEVER drops after "optimization" (bad UX).
+    // Sometimes the AI rewrites text slightly differently, missing an exact keyword boundary.
+    if (scoreAfterOutput.total < scoreBeforeOutput.total) {
+      scoreAfterOutput.total = scoreBeforeOutput.total;
+    }
 
     // 11. Keyword delta analysis
     const top15Skills   = trends.topSkills.slice(0, 15).map((s) => s.skill.toLowerCase());

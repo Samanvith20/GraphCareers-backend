@@ -399,7 +399,7 @@ function buildResumePrompt(resumeText) {
   return `
 You are a strict resume parser.
 
-Your task is to extract ONLY factual technical information from the resume.
+Your task is to extract all relevant professional and technical information from the resume, including work experience, projects, skills, education, and certifications.
 Do NOT guess, infer, or hallucinate any information.
 
 Return results strictly following the provided schema.
@@ -415,7 +415,7 @@ GENERAL RULES
    - skills → []
    - experienceMonths → 0
 4. Ignore formatting artifacts like headers, page numbers, or repeated sections.
-5. Ignore education unless it contains explicit technical skills.
+5. Extract ALL education entries (degree, institution, dates).
 
 ========================
 WORK EXPERIENCE RULES
@@ -441,10 +441,13 @@ SKILLS RULES (STRICT)
 
 Extract ONLY technical skills.
 
-Allowed categories:
-- programming languages, frameworks, libraries, databases
-- cloud platforms, devops tools, APIs, protocols
-- messaging systems, testing tools, CI/CD tools
+Categorize them into an object using THESE EXACT KEYS:
+- "Frontend"
+- "Backend"
+- "Database"
+- "DevOps & Cloud"
+- "AI & Data Science"
+- "Other Tools"
 
 STRICTLY EXCLUDE:
 communication, leadership, management, teamwork, problem solving,
@@ -452,11 +455,13 @@ documentation, planning, coordination, customer support, inventory management
 
 Skills must be: lowercase · concise · no duplicates · explicitly in the resume
 
+
 ========================
-LOCATION RULES
+LOCATION & CONTACT RULES
 ========================
 
-Return as "city" or "city, country". If not present → null.
+1. Return location as "city" or "city, country". If not present → null.
+2. Search the text carefully for any LinkedIn or GitHub URLs (e.g. linkedin.com/in/..., github.com/...). If you find them, extract the full URL. If not present, return null.
 
 ========================
 BIO RULES

@@ -1,11 +1,18 @@
 import neo4j from "neo4j-driver";
 
-export const normalizeSkills = (skills,max=100) =>{
-   if (!Array.isArray(skills)) return [];
+export const normalizeSkills = (skills, max=100) => {
+   if (!skills) return [];
+   
+   let flatSkills = [];
+   if (Array.isArray(skills)) {
+     flatSkills = skills;
+   } else if (typeof skills === "object") {
+     flatSkills = Object.values(skills).flat();
+   }
 
   return Array.from(
     new Set(
-      skills
+      flatSkills
         .map((s) => String(s).toLowerCase().trim())
         .filter(Boolean)
     )
