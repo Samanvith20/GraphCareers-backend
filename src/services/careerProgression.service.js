@@ -95,7 +95,7 @@ const pro    = isPro;
 WHERE s.canonical IN $userSkills
 
 WITH r, collect(DISTINCT s.canonical) AS matchedSkills
-WHERE size(matchedSkills) >= 3
+WHERE size(matchedSkills) >= 1
 
 MATCH (r)-[:REQUIRES]->(s2:Skill)
 
@@ -184,10 +184,13 @@ RETURN r.role_title AS role,
         if (r.role === bestRole.role) return false;
         const titleTokens         = r.role.toLowerCase().replace(/[^a-z0-9 ]/g, " ").split(" ");
         const sharesFamilyToken   = titleTokens.some((t) => t.length > 3 && bestTokens.has(t));
+        const overlap             = jaccardOverlap(bestRole.allSkills, r.allSkills);
         const isHarder            = (toSafeNumber(r.difficulty) ?? 1) > (toSafeNumber(bestRole.difficulty) ?? 1);
         const isHigherSeniority   = getSeniorityIndex(r.role) > bestSeniority;
         const gapRatio            = r.missingSkills.length / Math.max(r.allSkills.length, 1);
-        return (isHarder || isHigherSeniority) && sharesFamilyToken && gapRatio <= 0.6;
+        
+        // Progression is valid if it's harder/higher seniority AND (shares a title word OR has strong skill overlap)
+        return (isHarder || isHigherSeniority) && (sharesFamilyToken || overlap >= 0.4) && gapRatio <= 0.6;
       })
       .sort((a, b) => {
         const bestDiff = toSafeNumber(bestRole.difficulty) ?? 1;

@@ -371,7 +371,7 @@ export async function optimizeResumeForPlatform({ userId, platform, requestId })
 
     if (!resume?.structuredJson) {
       throw new AppError(
-        "Master resume not found or not parsed. Please upload and process your resume first.",
+        " resume not found or not parsed. Please upload and process your resume first.",
         400
       );
     }

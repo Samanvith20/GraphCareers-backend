@@ -162,15 +162,15 @@ try {
   const result = await session.run(
 `
 MATCH (j:Job)
-WHERE j.posted_at > datetime() - duration({days: 3})
+WHERE j.posted_at > datetime() - duration({days: 30})
   AND j.expires_at > datetime()
   AND (
     (j.min_experience IS NULL AND j.max_experience IS NULL)
     OR
     (
-      (j.min_experience IS NULL OR j.min_experience <= $maxExp)
+      (j.min_experience IS NULL OR j.min_experience <= ($maxExp + 1))
       AND
-      (j.max_experience IS NULL OR j.max_experience >= $minExp)
+      (j.max_experience IS NULL OR j.max_experience >= ($minExp - 1))
     )
   )
 
@@ -184,8 +184,8 @@ WITH j,
      [sk IN jobSkills WHERE sk IN $skillVariants]             AS matchedSkills,
      [sk IN jobSkills WHERE NOT sk IN $skillVariants][0..5]   AS missingSkills
 
-WHERE size(matchedSkills) >= 3
-  AND size(matchedSkills) * 100.0 / size(jobSkills) >= 40
+WHERE size(matchedSkills) >= 1
+  AND size(matchedSkills) * 100.0 / size(jobSkills) >= 20
 
 WITH j,
      jobSkills,

@@ -15,46 +15,46 @@ export const optimizeResumeTrigger = async (req, res, next) => {
     const idempotencyKey = req.headers["idempotency-key"] || `${userId}-${platform}`;
 
     // 1. Enforce Global Rate Limiting & Deduplication (Max 1 active job across any platform)
-    const [activeJob] = await db
-      .select()
-      .from(resumeOptimizations)
-      .where(
-        and(
-          eq(resumeOptimizations.userId, userId),
-          inArray(resumeOptimizations.status, ["pending", "processing"])
-        )
-      );
+    // const [activeJob] = await db
+    //   .select()
+    //   .from(resumeOptimizations)
+    //   .where(
+    //     and(
+    //       eq(resumeOptimizations.userId, userId),
+    //       inArray(resumeOptimizations.status, ["pending", "processing"])
+    //     )
+    //   );
 
-    if (activeJob) {
-      if (activeJob.platform === platform) {
-        return res.status(202).json({
-          success: true,
-          message: "Optimization is already in progress",
-          status: activeJob.status,
-        });
-      } else {
-        throw new AppError(`You already have an active optimization running for ${activeJob.platform}. Please wait for it to finish.`, 429);
-      }
-    }
+    // if (activeJob) {
+    //   if (activeJob.platform === platform) {
+    //     return res.status(202).json({
+    //       success: true,
+    //       message: "Optimization is already in progress",
+    //       status: activeJob.status,
+    //     });
+    //   } else {
+    //     throw new AppError(`You already have an active optimization running for ${activeJob.platform}. Please wait for it to finish.`, 429);
+    //   }
+    // }
 
     // 2. 6-Hour Cache Rule (Cost Savings) - TEMPORARILY DISABLED FOR TESTING
-    const [existing] = await db
-      .select()
-      .from(resumeOptimizations)
-      .where(and(eq(resumeOptimizations.userId, userId), eq(resumeOptimizations.platform, platform)));
+    // const [existing] = await db
+    //   .select()
+    //   .from(resumeOptimizations)
+    //   .where(and(eq(resumeOptimizations.userId, userId), eq(resumeOptimizations.platform, platform)));
 
     
-    if (existing && existing.status === "completed" && existing.updatedAt) {
-      const hoursSinceOptimization = (new Date() - new Date(existing.updatedAt)) / (1000 * 60 * 60);
-      if (hoursSinceOptimization < 6) {
-        return res.status(200).json({
-          success: true,
-          message: "Optimization returned from cache",
-          status: "completed",
-          cached: true
-        });
-      }
-    }
+    // if (existing && existing.status === "completed" && existing.updatedAt) {
+    //   const hoursSinceOptimization = (new Date() - new Date(existing.updatedAt)) / (1000 * 60 * 60);
+    //   if (hoursSinceOptimization < 6) {
+    //     return res.status(200).json({
+    //       success: true,
+    //       message: "Optimization returned from cache",
+    //       status: "completed",
+    //       cached: true
+    //     });
+    //   }
+    // }
     
 
     // 3. Check Credits Before Proceeding

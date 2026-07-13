@@ -1,163 +1,125 @@
-import cron from "node-cron";
+import dotenv from "dotenv";
+dotenv.config();
+
 import { db } from "../db/index.js";
 import { users, jobMatches, userJobEmailLog } from "../db/schema.js";
 import { jobs as jobsTable } from "../db/schema.js";
 import { eq, desc, and, isNull } from "drizzle-orm";
-import logger from "../logger/logger.js";
-import redis from "../config/redis.js";
-import crypto from "crypto";
+import { getMatchedJobsService } from "../services/jobs.service.js";
 import { sendEmail } from "../lib/sendEmail.js";
 
-
-const BATCH_SIZE = 50;
-
-// 🔒 Lock
-async function acquireLock(key, ttl = 60 * 60) {
-  const value = crypto.randomUUID();
-  const result = await redis.set(key, value, "NX", "EX", ttl);
-  return result === "OK" ? value : null;
-}
-
-async function releaseLock(key, value) {
-  const current = await redis.get(key);
-  if (current === value) await redis.del(key);
-}
-
-async function runEmailWorker() {
-  const lockKey = "lock:email";
-  const lockValue = await acquireLock(lockKey, 7200);
-
-  if (!lockValue) {
-    logger.warn("Email worker already running — skipping this cron tick", { lockKey });
-    return;
-  }
-
-  logger.info("Email worker started");
-
-  let lastId = null;
-
+async function testEmail() {
   try {
-    while (true) {
-      const batchUsers = await db.query.users.findMany({
-        columns: { id: true, email: true, name: true },
-        limit: BATCH_SIZE,
-        ...(lastId && { where: (u, { gt }) => gt(u.id, lastId) }),
-        orderBy: (u, { asc }) => [asc(u.id)],
-      });
-      //console.log("Processing batch of users, count:", batchUsers.length);
+    const targetEmail = "samanvith2005@gmail.com";
+    
+    // 1. Check if user exists, otherwise create
+    let user = await db.query.users.findFirst({
+      where: eq(users.email, targetEmail)
+    });
 
-      if (!batchUsers.length) break;
-
-      for (const user of batchUsers) {
-        try {
-         // 🔥 Get ONLY unemailed jobs
-       
-const jobs = await db
-  .select({
-    jobSourceId: jobMatches.jobSourceId,
-    matchPercent: jobMatches.matchPercent,
-    matchedSkills: jobMatches.matchedSkills,
-    matchedCount: jobMatches.matchedCount,
-    requiredCount: jobMatches.requiredCount,
-
-    // 🔥 FROM jobs table
-    title: jobsTable.title,
-    company: jobsTable.company,
-    location: jobsTable.location,
-    salaryMin: jobsTable.salaryMin,
-    salaryMax: jobsTable.salaryMax,
-    sourceUrl: jobsTable.sourceUrl,
-  })
-  .from(jobMatches)
-  .innerJoin(
-    jobsTable,
-    eq(jobMatches.jobSourceId, jobsTable.sourceJobId)
-  )
-  .leftJoin(
-    userJobEmailLog,
-    and(
-      eq(jobMatches.jobSourceId, userJobEmailLog.jobSourceId),
-      eq(jobMatches.userId, userJobEmailLog.userId)
-    )
-  )
-  .where(
-    and(
-      eq(jobMatches.userId, user.id),
-      isNull(userJobEmailLog.id)
-    )
-  )
-  .orderBy(desc(jobMatches.score))
-  .limit(2);
-  // const jobs = await db
-  //           .select()
-  //           .from(jobMatches)
-  //           .where(
-  //             and(
-  //               eq(jobMatches.userId, user.id),
-  //               eq(jobMatches.isEmailed, false)
-  //             )
-  //           )
-  //           .orderBy(desc(jobMatches.score))
-  //           .limit(2);
-  //console.log(`User ${user.id} has ${jobs.length} new job matches`);
-
-          if (!jobs.length) continue;
-
-          const topJobs = jobs.slice(0, 2);
-
-          await sendEmail({
-            to: user.email,
-            subject: `${jobs.length} new job matches for your profile`,
-            html: generateEmailHTML(user.name, topJobs),
-          });
-
-          logger.info("Job match email sent", {
-            userId: user.id,
-            jobCount: jobs.length,
-          });
-
-          // Mark as emailed
-          await db.transaction(async (tx) => {
-            for (const job of jobs) {
-              await tx
-                .update(jobMatches)
-                .set({ isEmailed: true })
-                .where(
-                  and(
-                    eq(jobMatches.userId, user.id),
-                    eq(jobMatches.jobSourceId, job.jobSourceId)
-                  )
-                );
-
-              await tx.insert(userJobEmailLog).values({
-                userId: user.id,
-                jobSourceId: job.jobSourceId,
-              });
-            }
-
-            await tx
-              .update(users)
-              .set({ lastEmailSentAt: new Date() })
-              .where(eq(users.id, user.id));
-          });
-
-        } catch (err) {
-          logger.error("Failed to send job match email", {
-            userId: user.id,
-            name:    err.name,
-            message: err.message,
-          });
-        }
-      }
-
-      lastId = batchUsers[batchUsers.length - 1].id;
+    if (!user) {
+      console.log(`User ${targetEmail} not found. Creating test user...`);
+      const [newUser] = await db.insert(users).values({
+        name: "Samanvith (Test)",
+        email: targetEmail,
+        skills: ["react", "node.js", "javascript", "typescript", "aws", "postgresql"],
+        experience: 24, // 2 years
+      }).returning();
+      user = newUser;
+    } else {
+      console.log(`Found user ${targetEmail}. Updating skills to ensure matches...`);
+      const [updated] = await db.update(users).set({
+        skills: ["react", "node.js", "javascript", "typescript", "aws", "postgresql"],
+        experience: 24
+      }).where(eq(users.id, user.id)).returning();
+      user = updated;
     }
 
-    logger.info("Email worker completed successfully");
-  } finally {
-    await releaseLock(lockKey, lockValue);
+    // 2. Clear email log so we actually send the email for testing
+    console.log("Clearing email log for this user to test fresh send...");
+    await db.delete(userJobEmailLog).where(eq(userJobEmailLog.userId, user.id));
+
+    // 3. Trigger matching (This stores to job_matches)
+    console.log("Running job matcher...");
+    const matchResult = await getMatchedJobsService({ userId: user.id });
+    console.log(`Found ${matchResult.jobs.length} jobs from Neo4j.`);
+
+    // Give the background insert in getMatchedJobsService a second to finish
+    await new Promise(r => setTimeout(r, 2000));
+
+    // 4. Fetch jobs to email (using the exact query from emailWorker.js)
+    console.log("Fetching jobs to email (excluding already emailed)...");
+    const jobs = await db
+      .select({
+        jobSourceId: jobMatches.jobSourceId,
+        matchPercent: jobMatches.matchPercent,
+        title: jobsTable.title,
+        company: jobsTable.company,
+        location: jobsTable.location,
+        salaryMin: jobsTable.salaryMin,
+        salaryMax: jobsTable.salaryMax,
+        sourceUrl: jobsTable.sourceUrl,
+      })
+      .from(jobMatches)
+      .innerJoin(
+        jobsTable,
+        eq(jobMatches.jobSourceId, jobsTable.sourceJobId)
+      )
+      .leftJoin(
+        userJobEmailLog,
+        and(
+          eq(jobMatches.jobSourceId, userJobEmailLog.jobSourceId),
+          eq(jobMatches.userId, userJobEmailLog.userId)
+        )
+      )
+      .where(
+        and(
+          eq(jobMatches.userId, user.id),
+          isNull(userJobEmailLog.id)
+        )
+      )
+      .orderBy(desc(jobMatches.score))
+      .limit(2);
+
+    console.log(`Jobs eligible for email: ${jobs.length}`);
+
+    if (jobs.length === 0) {
+      console.log("No new jobs to email.");
+      process.exit(0);
+    }
+
+    // 5. Send Email
+    console.log("Sending email...");
+    
+    // Quick template generation for testing
+    const html = generateEmailHTML("Samanvith", jobs);
+
+    await sendEmail({
+      to: user.email,
+      subject: `[Test] ${jobs.length} new job matches for your profile`,
+      html: html,
+    });
+    
+    console.log("Email sent successfully!");
+
+    // 6. Log it like the worker does
+    await db.transaction(async (tx) => {
+      for (const job of jobs) {
+        await tx.insert(userJobEmailLog).values({
+          userId: user.id,
+          jobSourceId: job.jobSourceId,
+        });
+      }
+    });
+    console.log("Database logged the sent jobs.");
+
+    process.exit(0);
+  } catch (err) {
+    console.error("Test failed:", err);
+    process.exit(1);
   }
 }
+
 function generateEmailHTML(name, jobs) {
   function getInitials(company = "") {
     return company.split(/\s+/).slice(0, 2).map(w => w[0]?.toUpperCase() || "").join("");
@@ -327,11 +289,4 @@ function generateEmailHTML(name, jobs) {
 </html>`;
 }
 
-
-
-
- //runEmailWorker()
-//⏰ Run after matcher
-cron.schedule("30 10,17,23 * * *", runEmailWorker, {
-  timezone: "Asia/Kolkata",
-});
+testEmail();
