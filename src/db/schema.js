@@ -461,3 +461,60 @@ export const userJobEmailLog = pgTable(
   })
 );
 
+// ─── Best Person to Contact Feature (Phase 2) ────────────────────────────────
+
+export const companyContacts = pgTable("company_contacts", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  companyName: text("company_name").notNull(),
+  provider: varchar("provider", { length: 50 }).notNull(),
+  providerPersonId: varchar("provider_person_id", { length: 255 }),
+  
+  fullName: text("full_name").notNull(),
+  firstName: text("first_name"),
+  lastName: text("last_name"),
+  title: text("title"),
+  linkedinUrl: text("linkedin_url"),
+  
+  email: text("email").notNull(),
+  emailStatus: varchar("email_status", { length: 50 }),
+  confidenceScore: integer("confidence_score"),
+  
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => ({
+  // Deduplication: prevent storing same exact provider person twice
+  providerPersonUnique: uniqueIndex("company_contacts_provider_person_idx").on(table.provider, table.providerPersonId),
+  // Deduplication: prevent storing exact same normalized email multiple times
+  emailUnique: uniqueIndex("company_contacts_email_idx").on(table.email),
+  companyIdx: index("company_contacts_company_idx").on(table.companyName)
+}));
+
+// user-contact-credit-model
+// It tracks granted/used credits without unnecessarily storing a duplicate remainingCredits value.
+export const userContactCreditAccounts = pgTable("user_contact_credit_accounts", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  userId: uuid("user_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
+  
+  freeCreditsGranted: integer("free_credits_granted").default(5).notNull(),
+  creditsUsed: integer("credits_used").default(0).notNull(),
+  
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => ({
+  // 1-to-1 enforcement: one credit account per user
+  userCreditAccountUnique: uniqueIndex("user_contact_credit_account_unique_idx").on(table.userId),
+}));
+
+//records that a particular user has already unlocked a particular contact:
+export const userContactReveals = pgTable("user_contact_reveals", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  userId: uuid("user_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
+  contactId: uuid("contact_id").references(() => companyContacts.id, { onDelete: "cascade" }).notNull(),
+  
+  creditCharged: boolean("credit_charged").default(true),
+  revealedAt: timestamp("revealed_at").defaultNow(),
+}, (table) => ({
+  // Database-level uniqueness guarantee to prevent double-charging
+  userContactUnique: uniqueIndex("user_contact_reveals_unique_idx").on(table.userId, table.contactId),
+}));
+
