@@ -12,20 +12,26 @@ function getApiKey() {
 }
 
 export const ProspeoProvider = {
-  searchPeople: async (companyDomain, page = 1) => {
+  searchPeople: async ({ companyDomain, companyName, location, page = 1 }) => {
     const apiKey = getApiKey();
     const url = `${PROSPEO_BASE_URL}/search-person`;
 
     const payload = {
       page,
       filters: {
-        company: {
-          websites: {
-            include: [companyDomain]
-          }
-        }
+        company: {}
       }
     };
+
+    if (companyDomain) {
+      payload.filters.company.websites = { include: [companyDomain] };
+    } else if (companyName) {
+      payload.filters.company.names = { include: [companyName] };
+    }
+
+    if (location) {
+      payload.filters.person_location_search = { include: [location] };
+    }
 
     try {
       const response = await fetch(url, {

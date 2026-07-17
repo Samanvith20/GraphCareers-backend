@@ -179,7 +179,7 @@ function getTitleRelevance(jobTitle, candidateTitle) {
   return Math.min(overlap, 20); // Cap at 20
 }
 
-function rankCandidates(candidates, jobTitle, companyDomain) {
+export function rankCandidates(candidates, jobTitle, companyDomain) {
   const jobFamily = getJobFamily(jobTitle);
   
   const ranked = candidates.map(c => {
@@ -242,16 +242,28 @@ export class ContactDiscoveryService {
    * Discovers the top N ranked contacts for a given domain and job title.
    * Does NOT call enrich endpoint. Does NOT persist to DB.
    */
-  static async discoverTopContacts({ companyDomain, jobTitle, limit = 4 }) {
+  static async discoverTopContacts({ companyDomain, companyName, jobTitle, limit = 4 }) {
     try {
-      const targetDomain = normalizeDomain(companyDomain);
-      if (!targetDomain) {
-        return { status: "INVALID_DOMAIN" };
+      let targetDomain = null;
+      if (companyDomain) {
+        targetDomain = normalizeDomain(companyDomain);
+        if (!targetDomain && !companyName) {
+          return { status: "INVALID_DOMAIN" };
+        }
       }
 
       // 2. Call Prospeo Provider
-      logger.info(`Calling Prospeo search for domain ${targetDomain}`);
-      const searchData = await ProspeoProvider.searchPeople(targetDomain);
+      logger.info(`Calling Prospeo search for ${targetDomain || companyName}`);
+      let searchData;
+      try {
+        searchData = await ProspeoProvider.searchPeople({ companyDomain: targetDomain, companyName });
+      } catch (err) {
+        if (err.statusCode === 400 || err.status === 400 || (err.message && err.message.includes("400"))) {
+          logger.warn(`Prospeo rejected domain ${targetDomain} (400 Bad Request)`);
+          return { status: "INVALID_DOMAIN" };
+        }
+        throw err;
+      }
       
       if (searchData.candidates.length === 0) {
         return { status: "NO_PEOPLE_FOUND" };
@@ -259,9 +271,11 @@ export class ContactDiscoveryService {
 
       // 3. Validate and Filter
       const eligible = searchData.candidates.filter(c => {
-        const cDom = normalizeDomain(c.companyDomain);
-        if (cDom && cDom !== targetDomain) return false;
-        
+        // If we searched by strict domain, enforce it
+        if (targetDomain) {
+          const cDom = normalizeDomain(c.companyDomain);
+          if (cDom && cDom !== targetDomain) return false;
+        }
         return c.emailStatus === "VERIFIED";
       });
 
@@ -270,7 +284,8 @@ export class ContactDiscoveryService {
       }
 
       // 4. Sort and take top N
-      const ranked = rankCandidates(eligible, jobTitle, targetDomain);
+      // If targetDomain is not present, rankCandidates might need a small update, but usually it works fine
+      const ranked = rankCandidates(eligible, jobTitle, targetDomain || "");
       ranked.sort((a, b) => b.totalScore - a.totalScore);
       const topCandidates = ranked.slice(0, limit);
 

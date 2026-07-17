@@ -1,10 +1,10 @@
 import { z } from "zod";
 
 export const discoverContactSchema = z.object({
-  jobId: z.string().uuid().optional().or(z.literal("")),
+  jobId: z.string().optional().or(z.literal("")),
   jobTitle: z.string().min(1, "Job title is required"),
   companyName: z.string().min(1, "Company name is required"),
-  companyDomain: z.string().min(3, "Valid company domain is required"),
+  companyDomain: z.string().optional().or(z.literal("")),
 });
 
 export const revealContactSchema = z.object({

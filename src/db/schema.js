@@ -518,3 +518,53 @@ export const userContactReveals = pgTable("user_contact_reveals", {
   userContactUnique: uniqueIndex("user_contact_reveals_unique_idx").on(table.userId, table.contactId),
 }));
 
+
+// ─── Referral Dashboard Feature (Phase 3) ────────────────────────────────
+
+export const referralRequestStatusEnum = pgEnum("referral_request_status", [
+  "pending",
+  "processing",
+  "completed",
+  "failed_no_contacts",
+  "failed_error"
+]);
+
+// Global Cached Pool of all discovered referrals (before user spends a credit to reveal email)
+export const companyReferralCandidates = pgTable("company_referral_candidates", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  companyName: text("company_name").notNull(),
+  provider: varchar("provider", { length: 50 }).notNull(),
+  providerPersonId: varchar("provider_person_id", { length: 255 }).notNull(),
+  
+  fullName: text("full_name").notNull(),
+  title: text("title"),
+  linkedinUrl: text("linkedin_url"),
+  location: text("location"),
+  department: text("department"),
+  score: integer("score").default(0), // Rank based on usefulness
+  
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => ({
+  // Prevent duplicate candidates per company from the same provider
+  companyProviderPersonUnique: uniqueIndex("company_referral_candidates_unique_idx").on(table.companyName, table.provider, table.providerPersonId),
+  companyIdx: index("company_referral_candidates_company_idx").on(table.companyName)
+}));
+
+// User's dedicated dashboard links
+export const userReferralRequests = pgTable("user_referral_requests", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  userId: uuid("user_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
+  companyName: text("company_name").notNull(),
+  jobTitleContext: text("job_title_context"), // Used for ranking
+  locationContext: text("location_context"), // Used for localized Prospeo search
+  
+  status: referralRequestStatusEnum("status").default("pending"),
+  
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+}, (table) => ({
+  userIdx: index("user_referral_requests_user_idx").on(table.userId),
+  // Prevent the user from requesting referrals for the exact same company multiple times
+  userCompanyUnique: uniqueIndex("user_referral_requests_user_company_idx").on(table.userId, table.companyName)
+}));

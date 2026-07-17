@@ -7,11 +7,11 @@ export class ContactsController {
   static async discover(req, res, next) {
     try {
       const parsed = discoverContactSchema.parse(req.body);
-      const userId = req.user.id;
+      const userId = req.userId;
 
-      // Discover Top 4 Contacts
       const discoveryResult = await ContactDiscoveryService.discoverTopContacts({
         companyDomain: parsed.companyDomain,
+        companyName: parsed.companyName,
         jobTitle: parsed.jobTitle,
         limit: 4
       });
@@ -39,7 +39,7 @@ export class ContactsController {
       });
     } catch (error) {
       if (error.name === "ZodError") {
-        return next(new AppError(error.errors[0].message, 400));
+        return next(new AppError(error.issues[0].message, 400));
       }
       next(error);
     }
@@ -49,7 +49,7 @@ export class ContactsController {
     try {
       // Validate Input from Body (since they aren't in DB yet)
       const parsed = revealContactSchema.parse(req.body);
-      const userId = req.user.id;
+      const userId = req.userId;
 
       // Call Atomic Reveal Service
       const result = await ContactRevealService.revealContact(userId, parsed);
@@ -61,7 +61,7 @@ export class ContactsController {
       return res.status(200).json(result);
     } catch (error) {
       if (error.name === "ZodError") {
-        return next(new AppError(error.errors[0].message, 400));
+        return next(new AppError(error.issues[0].message, 400));
       }
       next(error);
     }
