@@ -24,6 +24,9 @@ export async function loginService(email, password) {
     throw new AppError("User not found", 404);
   }
 
+  if (!user[0].password) {
+    throw new AppError("It looks like you previously signed up with Google. Please continue with Google to log in, or reset your password.", 401);
+  }
 
   const match = await bcrypt.compare(password, user[0].password);
   if (!match) {

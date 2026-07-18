@@ -158,7 +158,9 @@ export async function getMatchedJobsService({
   if (jobTypeFilter) optionalWhere += " AND j.job_type = $jobTypeFilter";
 
   const statsQuery = `
-    MATCH (j:Job)
+    MATCH (s:Skill)
+    WHERE s.canonical IN $skillVariants
+    MATCH (j:Job)-[:REQUIRES]->(s)
     WHERE j.posted_at >= datetime($fromDate)
       AND j.expires_at > datetime()
       ${optionalWhere}
@@ -170,12 +172,11 @@ export async function getMatchedJobsService({
           (j.max_experience IS NULL OR j.max_experience >= ($minExp - 1))
         )
       )
-    MATCH (j)-[:REQUIRES]->(s:Skill)
-    WITH j, collect(DISTINCT s.canonical) AS jobSkills
-    WITH j, jobSkills, size([sk IN jobSkills WHERE sk IN $skillVariants]) AS matchedCount
-    WHERE matchedCount >= 1
-      AND matchedCount * 100.0 / size(jobSkills) >= 20
-    WITH j, matchedCount, round(100.0 * matchedCount / size(jobSkills), 1) AS matchPercent
+    WITH j, count(DISTINCT s.canonical) AS matchedCount
+    MATCH (j)-[:REQUIRES]->(allS:Skill)
+    WITH j, matchedCount, count(DISTINCT allS) AS totalRequired
+    WHERE matchedCount * 100.0 / totalRequired >= 20
+    WITH j, round(100.0 * matchedCount / totalRequired, 1) AS matchPercent
     RETURN 
       count(j) AS totalJobs,
       coalesce(avg(matchPercent), 0) AS avgMatch,
@@ -184,7 +185,9 @@ export async function getMatchedJobsService({
   `;
 
   const jobsQuery = `
-    MATCH (j:Job)
+    MATCH (s:Skill)
+    WHERE s.canonical IN $skillVariants
+    MATCH (j:Job)-[:REQUIRES]->(s)
     WHERE j.posted_at >= datetime($fromDate)
       AND j.expires_at > datetime()
       ${optionalWhere}
@@ -196,17 +199,16 @@ export async function getMatchedJobsService({
           (j.max_experience IS NULL OR j.max_experience >= ($minExp - 1))
         )
       )
-    MATCH (j)-[:REQUIRES]->(s:Skill)
-    WITH j, collect(DISTINCT s.canonical) AS jobSkills
-    WITH j, jobSkills,
-         [sk IN jobSkills WHERE sk IN $skillVariants] AS matchedSkills,
-         [sk IN jobSkills WHERE NOT sk IN $skillVariants][0..5] AS missingSkills
-    WHERE size(matchedSkills) >= 1
-      AND size(matchedSkills) * 100.0 / size(jobSkills) >= 20
-    WITH j, jobSkills, matchedSkills, missingSkills,
+    WITH j, collect(DISTINCT s.canonical) AS matchedSkills
+    MATCH (j)-[:REQUIRES]->(allS:Skill)
+    WITH j, matchedSkills, collect(DISTINCT allS.canonical) AS jobSkills
+    WITH j, matchedSkills, jobSkills,
+         [sk IN jobSkills WHERE NOT sk IN $skillVariants][0..5] AS missingSkills,
          size(jobSkills) AS totalRequired,
-         size(matchedSkills) AS matchedCount,
-         round(100.0 * size(matchedSkills) / size(jobSkills), 1) AS matchPercent,
+         size(matchedSkills) AS matchedCount
+    WHERE matchedCount * 100.0 / totalRequired >= 20
+    WITH j, matchedSkills, missingSkills, matchedCount, totalRequired,
+         round(100.0 * matchedCount / totalRequired, 1) AS matchPercent,
          coalesce(j.hours_old, 0) AS hoursOld
     WITH j, matchedSkills, missingSkills, matchedCount, totalRequired, matchPercent,
          (matchPercent * 2.0) + (matchedCount * 6) - (size(missingSkills) * 2) - (hoursOld / 24.0 * 1.5) - abs(coalesce(j.min_experience, 0) - $minExp) * 2 AS qualityScore

@@ -49,7 +49,7 @@ export const ProspeoProvider = {
       }
 
       const data = await response.json();
-      fs.writeFileSync("prospeo_response.json", JSON.stringify(data, null, 2));
+      //fs.writeFileSync("prospeo_response.json", JSON.stringify(data, null, 2));
       const rawResponse = data.results || [];
       
       const candidates = rawResponse.map(item => {
@@ -110,7 +110,7 @@ export const ProspeoProvider = {
       }
 
       const data = await response.json();
-      fs.writeFileSync("prospeo_enrich_response.json", JSON.stringify(data, null, 2));
+      //fs.writeFileSync("prospeo_enrich_response.json", JSON.stringify(data, null, 2));
       
       const person = data.person || {};
       const emailObj = person.email || {};

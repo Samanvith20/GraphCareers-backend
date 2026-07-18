@@ -1,5 +1,5 @@
 import { db } from "../db/index.js";
-import { companyReferralCandidates, userReferralRequests } from "../db/schema.js";
+import { companyReferralCandidates, userReferralRequests, companyContacts, userContactReveals } from "../db/schema.js";
 import { eq, and, desc } from "drizzle-orm";
 import logger from "../logger/logger.js";
 import { ProspeoProvider } from "../lib/prospeoProvider.js";
@@ -110,10 +110,26 @@ export class ReferralsService {
    * Returns all requested companies, and attaches the cached top candidates if completed.
    */
   static async getUserDashboard(userId) {
+    // Fetch all user requests
     const requests = await db.select()
       .from(userReferralRequests)
       .where(eq(userReferralRequests.userId, userId))
       .orderBy(desc(userReferralRequests.updatedAt));
+
+    // Fetch globally all revealed contacts for this user
+    const userReveals = await db.select({
+      providerPersonId: companyContacts.providerPersonId,
+      email: companyContacts.email
+    })
+    .from(userContactReveals)
+    .innerJoin(companyContacts, eq(userContactReveals.contactId, companyContacts.id))
+    .where(eq(userContactReveals.userId, userId));
+    
+    // Create a map for O(1) lookup
+    const revealedMap = new Map();
+    for (const r of userReveals) {
+      revealedMap.set(r.providerPersonId, r.email);
+    }
 
     const dashboard = [];
 
@@ -135,15 +151,19 @@ export class ReferralsService {
           .orderBy(desc(companyReferralCandidates.score))
           .limit(10);
         
-        item.contacts = candidates.map(c => ({
-          id: c.id,
-          providerPersonId: c.providerPersonId,
-          fullName: c.fullName,
-          title: c.title,
-          linkedinUrl: c.linkedinUrl,
-          score: c.score,
-          isRevealed: false // Frontend will check this or we can join userContactReveals
-        }));
+        item.contacts = candidates.map(c => {
+          const revealedEmail = revealedMap.get(c.providerPersonId);
+          return {
+            id: c.id,
+            providerPersonId: c.providerPersonId,
+            fullName: c.fullName,
+            title: c.title,
+            linkedinUrl: c.linkedinUrl,
+            score: c.score,
+            isRevealed: !!revealedEmail,
+            email: revealedEmail || null
+          };
+        });
       }
 
       dashboard.push(item);
