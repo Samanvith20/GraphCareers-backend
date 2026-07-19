@@ -166,6 +166,7 @@ export async function profileService(id){
       id: users.id,
       name: users.name,
       email: users.email,
+      credits: users.credits,
     })
     .from(users)
     .where(eq(users.id, id))

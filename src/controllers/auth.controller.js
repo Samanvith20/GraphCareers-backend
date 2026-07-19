@@ -7,6 +7,7 @@ import {
   resetPasswordService,
   googleAuthService,
 } from "../services/auth.service.js";
+import { ContactRevealService } from "../services/contactReveal.service.js";
 import jwt from "jsonwebtoken";
 
 export async function login(req, res, next) {
@@ -127,8 +128,9 @@ export async function resetPasswordController(req, res, next) {
 export async function me(req, res, next) {
   try {
     const user = await profileService(req.userId);
+    const referralCredits = await ContactRevealService.getUserCredits(req.userId);
 
-    return res.json({ user });
+    return res.json({ user: { ...user, referralCredits } });
   } catch (err) {
     next(err);
   }
