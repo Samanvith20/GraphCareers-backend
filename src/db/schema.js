@@ -568,3 +568,16 @@ export const userReferralRequests = pgTable("user_referral_requests", {
   // Prevent the user from requesting referrals for the exact same company multiple times
   userCompanyUnique: uniqueIndex("user_referral_requests_user_company_idx").on(table.userId, table.companyName)
 }));
+
+// ─── Purchase Intent ─────────────────────────────────────────────────────────
+
+export const purchaseIntents = pgTable("purchase_intents", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  userId: uuid("user_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
+  featureType: varchar("feature_type", { length: 255 }).notNull(),
+  packName: varchar("pack_name", { length: 255 }).notNull(),
+  price: varchar("price", { length: 255 }).notNull(),
+  intent: varchar("intent", { length: 50 }).notNull(), // 'yes', 'maybe', 'no'
+  reason: varchar("reason", { length: 1000 }),
+  createdAt: timestamp("created_at").defaultNow(),
+});

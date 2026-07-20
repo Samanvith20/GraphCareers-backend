@@ -18,6 +18,7 @@ import Sentry from "./lib/sentry.js";
 import resumeIntelligenceRoutes from "./routes/resumeIntelligence.routes.js";
 import contactsRoutes from "./routes/contacts.routes.js";
 import referralsRoutes from "./routes/referrals.routes.js";
+import purchaseIntentRoutes from "./routes/purchaseIntent.routes.js";
 
 dotenv.config();
 
@@ -138,6 +139,7 @@ app.use("/api/payments",paymentRoutes)
 app.use("/api/resume-intelligence", resumeIntelligenceRoutes);
 app.use("/api/contacts", contactsRoutes);
 app.use("/api/referrals", referralsRoutes);
+app.use("/api/purchase-intent", purchaseIntentRoutes);
 
 app.get("/", (req, res) => {
   res.json({ status: "ok", port: PORT });
