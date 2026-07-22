@@ -1,5 +1,5 @@
 import express from "express";
-import { optimizeResumeTrigger, getOptimizationStatus, downloadPdf, downloadDocx } from "../controllers/resumeIntelligence.controller.js";
+import { optimizeResumeTrigger, getOptimizationStatusHandler, downloadPdf, downloadDocx } from "../controllers/resumeIntelligence.controller.js";
 import { authMiddleware } from "../middleware/auth.js";
 import { 
   resumeIntelligenceTriggerLimiter, 
@@ -24,7 +24,7 @@ router.post(
 );
 
 // Check optimization status and get results
-router.get("/:platform/status", getOptimizationStatus);
+router.get("/:platform/status", getOptimizationStatusHandler);
 
 // Downloads
 router.get("/:platform/download/pdf", downloadPdf);

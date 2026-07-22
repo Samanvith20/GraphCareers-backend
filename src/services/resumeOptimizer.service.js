@@ -82,13 +82,13 @@ function buildSkillRecommendations(trends, userSkills) {
 //      a completely new company/employer was invented.
 //   3. Merge missing master sections as fallback
 
-function validateAndSanitize(parsed, masterResume, requestId) {
+function validateAndSanitize(parsed, activeVersion, requestId) {
   let strippedCount = 0;
-  const masterJson = masterResume.structuredJson
-    ? JSON.parse(masterResume.structuredJson)
+  const masterJson = activeVersion.snapshotJson
+    ? (typeof activeVersion.snapshotJson === "string" ? JSON.parse(activeVersion.snapshotJson) : activeVersion.snapshotJson)
     : null;
   const originalText = (
-    masterResume.rawText || masterResume.text || JSON.stringify(masterJson) || ""
+    JSON.stringify(masterJson) || ""
   ).toLowerCase();
 
   // ── 1. Guard: Experience — only strip completely invented companies ──────────
@@ -352,7 +352,8 @@ OUTPUT — RETURN EXACTLY THIS JSON STRUCTURE
 
 // ─── Main orchestrator ────────────────────────────────────────────────────────
 
-export async function optimizeResumeForPlatform({ userId, platform, requestId }) {
+export async function optimizeResumeForPlatform(contextObj) {
+  const { userId, platform, requestId, activeVersion, resumeIntelligence: intelligence } = contextObj;
 
   // 1. Upsert a "processing" record — idempotent
   const [optRecord] = await db
@@ -365,27 +366,27 @@ export async function optimizeResumeForPlatform({ userId, platform, requestId })
     .returning();
 
   try {
-    // 2. Fetch user & master resume
-    const [user] = await db.select().from(users).where(eq(users.id, userId));
-    const [resume] = await db.select().from(resumes).where(eq(resumes.userId, userId));
-
-    if (!resume?.structuredJson) {
+    // 2. Extract Context (Workspace + Intelligence)
+    if (!activeVersion?.snapshotJson) {
       throw new AppError(
-        " resume not found or not parsed. Please upload and process your resume first.",
+        "Active resume version not found or not parsed.",
         400
       );
     }
 
-    const masterResumeJson = JSON.parse(resume.structuredJson);
+    const masterResumeJson = typeof activeVersion.snapshotJson === "string" 
+      ? JSON.parse(activeVersion.snapshotJson) 
+      : activeVersion.snapshotJson;
 
-    // 3. Build experience window for Neo4j skill matching
-    const expMonths = user.experience || 0;
+    // 3. Build experience window for Neo4j skill matching from Intelligence
+    const expMonths = intelligence?.experience?.totalMonths || 0;
     const expYears  = expMonths / 12;
     let minExp = 0, maxExp = 2;
     if (expYears > 2 && expYears <= 5) { minExp = 1; maxExp = expYears + 1; }
     else if (expYears > 5)             { minExp = expYears - 2; maxExp = expYears + 2; }
 
-    const skillVariants = expandSkills(user.skills);
+    const rawSkills = intelligence?.skills?.verified || [];
+    const skillVariants = expandSkills(rawSkills);
 
     logger.info("Resume optimization started", {
       requestId,
@@ -395,64 +396,68 @@ export async function optimizeResumeForPlatform({ userId, platform, requestId })
       skillVariants: skillVariants.length,
     });
 
-    // 4. Neo4j — fetch top 100 platform-matching jobs
-    const session = getNeo4jSession();
-    let jobSourceIds = [];
-    try {
-      const result = await session.run(
-        `
-        MATCH (j:Job)
-        WHERE toLower(j.source) = $platform
-          AND j.posted_at > datetime() - duration({days: 30})
-          AND (
-            (j.min_experience IS NULL AND j.max_experience IS NULL)
-            OR (
-              (j.min_experience IS NULL OR j.min_experience <= $maxExp)
-              AND (j.max_experience IS NULL OR j.max_experience >= $minExp)
+    let jobSourceIds = contextObj.jobSourceIds || [];
+    let trends = contextObj.trends || null;
+
+    if (!trends) {
+      // 4. Neo4j — fetch top 100 platform-matching jobs
+      const session = getNeo4jSession();
+      try {
+        const result = await session.run(
+          `
+          MATCH (j:Job)
+          WHERE toLower(j.source) = $platform
+            AND j.posted_at > datetime() - duration({days: 30})
+            AND (
+              (j.min_experience IS NULL AND j.max_experience IS NULL)
+              OR (
+                (j.min_experience IS NULL OR j.min_experience <= $maxExp)
+                AND (j.max_experience IS NULL OR j.max_experience >= $minExp)
+              )
             )
-          )
-        MATCH (j)-[:REQUIRES]->(s:Skill)
-        WITH j, collect(DISTINCT s.canonical) AS jobSkills
-        WITH j, jobSkills, [sk IN jobSkills WHERE sk IN $skillVariants] AS matchedSkills
-        WHERE size(matchedSkills) >= 2
-        WITH j, size(matchedSkills) * 100.0 / size(jobSkills) AS matchPercent
-        ORDER BY matchPercent DESC
-        LIMIT 100
-        RETURN j.job_id AS jobId
-        `,
-        {
-          platform: platform.toLowerCase(),
-          skillVariants,
-          minExp: neo4j.int(Math.floor(minExp)),
-          maxExp: neo4j.int(Math.ceil(maxExp)),
-        },
-        { timeout: 15000 }
-      );
-      jobSourceIds = result.records.map((r) => r.get("jobId")).filter(Boolean);
-    } finally {
-      await session.close();
+          MATCH (j)-[:REQUIRES]->(s:Skill)
+          WITH j, collect(DISTINCT s.canonical) AS jobSkills
+          WITH j, jobSkills, [sk IN jobSkills WHERE sk IN $skillVariants] AS matchedSkills
+          WHERE size(matchedSkills) >= 2
+          WITH j, size(matchedSkills) * 100.0 / size(jobSkills) AS matchPercent
+          ORDER BY matchPercent DESC
+          LIMIT 100
+          RETURN j.job_id AS jobId
+          `,
+          {
+            platform: platform.toLowerCase(),
+            skillVariants,
+            minExp: neo4j.int(Math.floor(minExp)),
+            maxExp: neo4j.int(Math.ceil(maxExp)),
+          },
+          { timeout: 15000 }
+        );
+        jobSourceIds = result.records.map((r) => r.get("jobId")).filter(Boolean);
+      } finally {
+        await session.close();
+      }
+
+      if (jobSourceIds.length === 0) {
+        throw new AppError(
+          `Not enough active jobs found on ${platform} matching your profile. Try again after updating your skills.`,
+          404
+        );
+      }
+
+      logger.info("Platform jobs fetched from Neo4j", {
+        requestId,
+        userId,
+        platform,
+        jobCount: jobSourceIds.length,
+      });
+
+      // 5. Compute platform-wide skill trends
+      trends = await computeTargetedTrends(jobSourceIds, requestId);
     }
-
-    if (jobSourceIds.length === 0) {
-      throw new AppError(
-        `Not enough active jobs found on ${platform} matching your profile. Try again after updating your skills.`,
-        404
-      );
-    }
-
-    logger.info("Platform jobs fetched from Neo4j", {
-      requestId,
-      userId,
-      platform,
-      jobCount: jobSourceIds.length,
-    });
-
-    // 5. Compute platform-wide skill trends
-    const trends = await computeTargetedTrends(jobSourceIds, requestId);
 
     // 6. Score original resume (baseline)
     const scoreBeforeOutput = scoreResume({
-      resumeText: resume.text || JSON.stringify(masterResumeJson),
+      resumeText: JSON.stringify(masterResumeJson),
       structuredJson: masterResumeJson,
       platform: "targeted",
       trends,
@@ -484,13 +489,13 @@ OPTIMIZATION GOAL:
     // 8. Call LLM — get optimized resume JSON
     const { parsed, generationMs } = await callLLM({
       masterResumeJson,
-      masterResumeText: resume.text || "",
+      masterResumeText: JSON.stringify(masterResumeJson),
       context,
       requestId,
     });
 
     // 9. Sanitize — anti-hallucination + restore any dropped sections
-    const { sanitized, strippedCount } = validateAndSanitize(parsed, resume, requestId);
+    const { sanitized, strippedCount } = validateAndSanitize(parsed, activeVersion, requestId);
 
     // 10. Score optimized resume
     const scoreAfterOutput = scoreResume({
@@ -509,7 +514,7 @@ OPTIMIZATION GOAL:
 
     // 11. Keyword delta analysis
     const top15Skills   = trends.topSkills.slice(0, 15).map((s) => s.skill.toLowerCase());
-    const originalText  = (resume.text || JSON.stringify(masterResumeJson)).toLowerCase();
+    const originalText  = JSON.stringify(masterResumeJson).toLowerCase();
     const optimizedText = JSON.stringify(sanitized).toLowerCase();
 
     const keywordsMatched = top15Skills.filter((s) => optimizedText.includes(s));
@@ -517,7 +522,7 @@ OPTIMIZATION GOAL:
     const keywordsAdded   = keywordsMatched.filter((s) => !originalText.includes(s));
 
     // 12. Build "skills to learn" recommendations (skills user DOESN'T have)
-    const skillRecommendations = buildSkillRecommendations(trends, user.skills);
+    const skillRecommendations = buildSkillRecommendations(trends, rawSkills);
 
     // 13. Generate structural recommendations
     const structuralRecommendations = generateRecommendations({
@@ -552,7 +557,7 @@ OPTIMIZATION GOAL:
           optimizedJson: JSON.stringify(sanitized),
 
           // Master resume snapshot — frontend fallback
-          masterResumeJson: resume.structuredJson,
+          masterResumeJson: JSON.stringify(masterResumeJson),
 
           // Keyword tracking
           keywordsMatched,
@@ -576,10 +581,11 @@ OPTIMIZATION GOAL:
         })
         .where(eq(resumeOptimizations.id, optRecord.id));
 
-      // Deduct 2 credits
+      // Deduct 2 credits (We fetch user inside the transaction to avoid stale data)
+      const [currentUser] = await tx.select().from(users).where(eq(users.id, userId));
       await tx
         .update(users)
-        .set({ credits: user.credits - 2 })
+        .set({ credits: currentUser.credits - 2 })
         .where(eq(users.id, userId));
     });
 
@@ -602,4 +608,66 @@ OPTIMIZATION GOAL:
 
     throw err;
   }
+}
+
+// ─── Exported helper for Phase 4 Orchestrator ──────────────────────────────
+
+export async function fetchPlatformTrends(contextObj) {
+  const { platform, requestId, resumeIntelligence: intelligence } = contextObj;
+  
+  const expMonths = intelligence?.experience?.totalMonths || 0;
+  const expYears  = expMonths / 12;
+  let minExp = 0, maxExp = 2;
+  if (expYears > 2 && expYears <= 5) { minExp = 1; maxExp = expYears + 1; }
+  else if (expYears > 5)             { minExp = expYears - 2; maxExp = expYears + 2; }
+
+  const rawSkills = intelligence?.skills?.verified || [];
+  const skillVariants = expandSkills(rawSkills);
+
+  const session = getNeo4jSession();
+  let jobSourceIds = [];
+  try {
+    const result = await session.run(
+      `
+      MATCH (j:Job)
+      WHERE toLower(j.source) = $platform
+        AND j.posted_at > datetime() - duration({days: 30})
+        AND (
+          (j.min_experience IS NULL AND j.max_experience IS NULL)
+          OR (
+            (j.min_experience IS NULL OR j.min_experience <= $maxExp)
+            AND (j.max_experience IS NULL OR j.max_experience >= $minExp)
+          )
+        )
+      MATCH (j)-[:REQUIRES]->(s:Skill)
+      WITH j, collect(DISTINCT s.canonical) AS jobSkills
+      WITH j, jobSkills, [sk IN jobSkills WHERE sk IN $skillVariants] AS matchedSkills
+      WHERE size(matchedSkills) >= 2
+      WITH j, size(matchedSkills) * 100.0 / size(jobSkills) AS matchPercent
+      ORDER BY matchPercent DESC
+      LIMIT 100
+      RETURN j.job_id AS jobId
+      `,
+      {
+        platform: platform.toLowerCase(),
+        skillVariants,
+        minExp: neo4j.int(Math.floor(minExp)),
+        maxExp: neo4j.int(Math.ceil(maxExp)),
+      },
+      { timeout: 15000 }
+    );
+    jobSourceIds = result.records.map((r) => r.get("jobId")).filter(Boolean);
+  } finally {
+    await session.close();
+  }
+
+  if (jobSourceIds.length === 0) {
+    throw new AppError(
+      `Not enough active jobs found on ${platform} matching your profile. Try again after updating your skills.`,
+      404
+    );
+  }
+
+  const trends = await computeTargetedTrends(jobSourceIds, requestId);
+  return { trends, jobSourceIds };
 }

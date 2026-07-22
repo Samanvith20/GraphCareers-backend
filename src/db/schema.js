@@ -246,6 +246,9 @@ export const resumeOptimizations = pgTable(
     // Score breakdown + structural recommendations
     scoreDetails: text("score_details"),
 
+    // Phase 4: AI Planner Output
+    planJson: text("plan_json"),
+
     status: resumeOptimizationStatusEnum("status").default("pending"),
     errorMessage: varchar("error_message", { length: 255 }),
 
@@ -581,3 +584,194 @@ export const purchaseIntents = pgTable("purchase_intents", {
   reason: varchar("reason", { length: 1000 }),
   createdAt: timestamp("created_at").defaultNow(),
 });
+
+// ─── Resume Workspace Infrastructure (Phase 1) ─────────────────────────────
+
+export const workspaceStatusEnum = pgEnum("workspace_status", [
+  "idle",
+  "analyzing",
+  "optimizing",
+  "ready",
+  "error",
+]);
+
+export const versionSourceEnum = pgEnum("version_source", [
+  "upload",
+  "platform_optimize",
+  "manual_edit",
+  "ai_patch",
+  "rollback",
+]);
+
+export const analysisTypeEnum = pgEnum("analysis_type", [
+  "ats_score",
+  "keyword_gap",
+  "section_quality",
+  "platform_fit",
+]);
+
+export const eventTypeEnum = pgEnum("workspace_event_type", [
+  "workspace_created",
+  "version_created",
+  "analysis_completed",
+  "optimization_started",
+  "optimization_completed",
+  "optimization_failed",
+  "version_activated",
+  "version_rolled_back",
+]);
+
+export const resumeWorkspaces = pgTable(
+  "resume_workspaces",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+
+    userId: uuid("user_id")
+      .references(() => users.id, { onDelete: "cascade" })
+      .notNull(),
+
+    resumeId: uuid("resume_id")
+      .references(() => resumes.id, { onDelete: "cascade" })
+      .notNull(),
+
+    status: workspaceStatusEnum("status").default("idle"),
+
+    // Pointer to the active/latest version (no FK to avoid circular dep)
+    activeVersionId: uuid("active_version_id"),
+
+    lastAnalyzedAt: timestamp("last_analyzed_at"),
+    totalVersions: integer("total_versions").default(0),
+    totalOptimizations: integer("total_optimizations").default(0),
+
+    intelligenceVersion: integer("intelligence_version").default(0),
+
+    createdAt: timestamp("created_at").defaultNow(),
+    updatedAt: timestamp("updated_at").defaultNow(),
+  },
+  (table) => ({
+    userIdx: index("resume_ws_user_idx").on(table.userId),
+    resumeUnique: uniqueIndex("resume_ws_resume_unique_idx").on(table.resumeId),
+  })
+);
+
+export const resumeVersions = pgTable(
+  "resume_versions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+
+    workspaceId: uuid("workspace_id")
+      .references(() => resumeWorkspaces.id, { onDelete: "cascade" })
+      .notNull(),
+
+    versionNumber: integer("version_number").notNull(),
+
+    // Full structured JSON snapshot of the resume at this version
+    snapshotJson: text("snapshot_json").notNull(),
+
+    source: versionSourceEnum("source").notNull(),
+
+    // Source-specific metadata (e.g., platform name, optimization record ID)
+    sourceMetadata: text("source_metadata"),
+
+    // Optional link to the optimization record that produced this version
+    optimizationId: uuid("optimization_id")
+      .references(() => resumeOptimizations.id, { onDelete: "set null" }),
+
+    // Parent version (null for version 1)
+    parentVersionId: uuid("parent_version_id"),
+
+    changeSummary: text("change_summary"),
+
+    createdAt: timestamp("created_at").defaultNow(),
+  },
+  (table) => ({
+    workspaceIdx: index("resume_ver_workspace_idx").on(table.workspaceId),
+    workspaceVersionUnique: uniqueIndex("resume_ver_ws_num_idx").on(
+      table.workspaceId,
+      table.versionNumber
+    ),
+  })
+);
+
+export const resumeAnalyses = pgTable(
+  "resume_analyses",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+
+    workspaceId: uuid("workspace_id")
+      .references(() => resumeWorkspaces.id, { onDelete: "cascade" })
+      .notNull(),
+
+    versionId: uuid("version_id")
+      .references(() => resumeVersions.id, { onDelete: "cascade" })
+      .notNull(),
+
+    type: analysisTypeEnum("type").notNull(),
+
+    platform: varchar("platform", { length: 255 }),
+
+    resultJson: text("result_json").notNull(),
+
+    // Denormalized score for fast queries
+    score: integer("score"),
+
+    createdAt: timestamp("created_at").defaultNow(),
+  },
+  (table) => ({
+    workspaceIdx: index("resume_ana_workspace_idx").on(table.workspaceId),
+    versionIdx: index("resume_ana_version_idx").on(table.versionId),
+    versionTypeUnique: uniqueIndex("resume_ana_ver_type_platform_idx").on(
+      table.versionId,
+      table.type,
+      table.platform
+    ),
+  })
+);
+
+export const resumeEvents = pgTable(
+  "resume_events",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+
+    workspaceId: uuid("workspace_id")
+      .references(() => resumeWorkspaces.id, { onDelete: "cascade" })
+      .notNull(),
+
+    userId: uuid("user_id")
+      .references(() => users.id, { onDelete: "cascade" })
+      .notNull(),
+
+    eventType: eventTypeEnum("event_type").notNull(),
+
+    versionId: uuid("version_id"),
+    analysisId: uuid("analysis_id"),
+    optimizationId: uuid("optimization_id"),
+
+    metadata: text("metadata"),
+
+    createdAt: timestamp("created_at").defaultNow(),
+  },
+  (table) => ({
+    workspaceIdx: index("resume_evt_workspace_idx").on(table.workspaceId),
+    workspaceTimeIdx: index("resume_evt_ws_time_idx").on(
+      table.workspaceId,
+      table.createdAt
+    ),
+  })
+);
+
+export const resumeWorkspaceIntelligence = pgTable(
+  "resume_workspace_intelligence",
+  {
+    workspaceId: uuid("workspace_id")
+      .primaryKey()
+      .references(() => resumeWorkspaces.id, { onDelete: "cascade" }),
+
+    engineVersion: integer("engine_version").notNull().default(1),
+
+    intelligenceJson: text("intelligence_json").notNull(),
+
+    createdAt: timestamp("created_at").defaultNow(),
+    updatedAt: timestamp("updated_at").defaultNow(),
+  }
+);

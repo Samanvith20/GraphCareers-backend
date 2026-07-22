@@ -2,7 +2,7 @@ import "dotenv/config";
 import { Worker } from "bullmq";
 import { connection } from "../queue/connection.js";
 import logger from "../logger/logger.js";
-import { optimizeResumeForPlatform } from "../services/resumeOptimizer.service.js";
+import { executePlatformOptimization } from "../orchestrators/resume.orchestrator.js";
 import Sentry from "../lib/sentry.js";
 
 const worker = new Worker(
@@ -16,7 +16,7 @@ const worker = new Worker(
       requestId,
     });
 
-    await optimizeResumeForPlatform({ userId, platform, requestId });
+    await executePlatformOptimization(userId, platform, requestId);
   },
   {
     connection,
