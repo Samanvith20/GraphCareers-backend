@@ -3,6 +3,7 @@ import { getVersion } from "../services/workspaceVersion.service.js";
 import { getAnalysesForVersion, compareVersionAnalyses } from "../services/workspaceAnalysis.service.js";
 import { listEvents } from "../services/workspaceEvent.service.js";
 import { versionIdParamSchema, compareQuerySchema, eventsQuerySchema } from "../schemas/resumeWorkspace.schema.js";
+import { getSuggestions } from "../services/suggestions.service.js";
 import logger from "../logger/logger.js";
 
 /**
@@ -116,6 +117,20 @@ export const listEventsHandler = async (req, res, next) => {
         createdAt: e.createdAt,
       })),
     });
+  } catch (err) {
+    next(err);
+  }
+};
+
+/**
+ * GET /api/resume-workspace/versions/:versionId/suggestions
+ * Gets AI suggestions for a specific version.
+ */
+export const getSuggestionsHandler = async (req, res, next) => {
+  try {
+    const { versionId } = versionIdParamSchema.parse(req.params);
+    const suggestions = await getSuggestions(versionId);
+    res.json({ success: true, suggestions });
   } catch (err) {
     next(err);
   }

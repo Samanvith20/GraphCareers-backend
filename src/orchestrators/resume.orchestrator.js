@@ -1,5 +1,5 @@
 import { db } from "../db/index.js";
-import { resumeOptimizations, users } from "../db/schema.js";
+import { resumeOptimizations, users, optimizationReports } from "../db/schema.js";
 import { eq, and } from "drizzle-orm";
 import { resumeOptimizationQueue } from "../queue/resumeOptimizationQueue.js";
 import { consumeUserCredits, getUserAccessFromUser } from "../services/userAccess.service.js";
@@ -11,6 +11,7 @@ import { createVersionFromOptimization } from "../services/workspaceVersion.serv
 import { runAtsAnalysis } from "../services/workspaceAnalysis.service.js";
 import { recordEvent } from "../services/workspaceEvent.service.js";
 import { generateOptimizationPlan } from "../services/aiPlanner.service.js";
+import { generateAndSaveSuggestions } from "../services/suggestions.service.js";
 
 /**
  * Triggers a platform optimization job. Handles limits, queues the background job.
@@ -148,10 +149,11 @@ export async function executePlatformOptimization(userId, platform, requestId) {
   context.trends = trends;
   context.jobSourceIds = jobSourceIds;
 
-  // 4. Run AI Planner (Phase 4)
+  // 4. Run AI Planner (Phase 4) — Planner is the reasoning engine
   const plan = await generateOptimizationPlan(context, trends);
+  context.executionPlan = plan; // Wire plan into context for Executor Mode
 
-  // 5. Run the legacy optimizer using the context
+  // 5. Run the optimizer (Executor Mode if plan exists, Legacy Mode if null)
   const result = await optimizeResumeForPlatform(context);
   const optId = result.optRecordId;
 
@@ -200,12 +202,30 @@ export async function executePlatformOptimization(userId, platform, requestId) {
     metadata: { platform, scoreAfter: optRecord.scoreAfter },
   });
 
+  // 9. Generate and Persist the Optimization Report
+  await db.insert(optimizationReports).values({
+    versionId: version.id,
+    platform: platform,
+    atsBefore: optRecord.scoreBefore,
+    atsAfter: optRecord.scoreAfter,
+    atsDelta: optRecord.scoreAfter - optRecord.scoreBefore,
+    operationsExecuted: result.operationsExecuted || [],
+    operationsSkipped: result.operationsSkipped || [],
+    operationsFailed: result.operationsFailed || [],
+    sectionsModified: JSON.stringify(result.sectionsModified || []),
+  });
+
   logger.info("Platform optimization integrated into workspace", {
     requestId,
     userId,
     workspaceId: workspace.id,
     versionId: version.id,
     platform,
+  });
+  
+  // 10. Generate AI Suggestions asynchronously
+  generateAndSaveSuggestions(workspace, version, intelligence, userId).catch(err => {
+    logger.error("Background suggestions generation failed", { requestId, versionId: version.id });
   });
 
   return { success: true, versionId: version.id };
