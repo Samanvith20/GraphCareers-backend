@@ -13,6 +13,7 @@ import {
   uniqueIndex,
   pgEnum,
   index,
+  jsonb,
 } from "drizzle-orm/pg-core";
 
 export const tierEnum = pgEnum("tier", ["free", "pro", "enterprise"]);
@@ -268,7 +269,97 @@ export const resumeOptimizations = pgTable(
   })
 );
 
+export const suggestionCategoryEnum = pgEnum("suggestion_category", [
+  "MARKET_SKILL",
+  "MISSING_METRIC",
+  "WEAK_BULLET",
+  "SUMMARY_IMPROVEMENT",
+  "PROJECT_IMPROVEMENT",
+  "ATS_IMPROVEMENT"
+]);
 
+export const resumeSuggestions = pgTable(
+  "resume_suggestions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    
+    versionId: uuid("version_id")
+      .references(() => resumeVersions.id, { onDelete: "cascade" })
+      .notNull(),
+      
+    category: suggestionCategoryEnum("category").notNull(),
+    title: varchar("title", { length: 255 }).notNull(),
+    description: text("description").notNull(),
+    reason: text("reason").notNull(),
+    
+    // Links directly to Phase 8 Resume Editing API
+    actionType: varchar("action_type", { length: 255 }).notNull(),
+    actionPayload: text("action_payload").notNull(), 
+    
+    priority: varchar("priority", { length: 50 }).default("medium"),
+    estimatedImpact: integer("estimated_impact").default(0),
+    
+    isDismissed: boolean("is_dismissed").default(false),
+    createdAt: timestamp("created_at").defaultNow()
+  },
+  (table) => ({
+    versionIdx: index("resume_sugg_version_idx").on(table.versionId),
+  })
+);
+
+export const jdAnalyses = pgTable(
+  "jd_analyses",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    versionId: uuid("version_id")
+      .references(() => resumeVersions.id, { onDelete: "cascade" })
+      .notNull(),
+    companyName: varchar("company_name", { length: 255 }).notNull(),
+    jobTitle: varchar("job_title", { length: 255 }).notNull(),
+    platform: varchar("platform", { length: 100 }),
+    
+    extractedSkills: jsonb("extracted_skills").notNull(),
+    extractedResponsibilities: jsonb("extracted_responsibilities").notNull(),
+    extractedKeywords: jsonb("extracted_keywords").notNull(),
+    matchReport: jsonb("match_report").notNull(),
+    
+    createdAt: timestamp("created_at").defaultNow()
+  },
+  (table) => ({
+    versionIdx: index("jd_analyses_version_idx").on(table.versionId),
+  })
+);
+
+export const optimizationReports = pgTable(
+  "optimization_reports",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    
+    versionId: uuid("version_id")
+      .references(() => resumeVersions.id, { onDelete: "cascade" })
+      .notNull(),
+      
+    platform: varchar("platform", { length: 255 }).notNull(),
+    
+    atsBefore: integer("ats_before").default(0),
+    atsAfter: integer("ats_after").default(0),
+    atsDelta: integer("ats_delta").default(0),
+    
+    // Arrays of operation objects or IDs
+    operationsExecuted: text("operations_executed").array().default([]),
+    operationsSkipped: text("operations_skipped").array().default([]),
+    operationsFailed: text("operations_failed").array().default([]),
+    
+    // Detailed list of modifications
+    // Shape: { targetPath, oldValue, newValue, reason }
+    sectionsModified: text("sections_modified"),
+    
+    createdAt: timestamp("created_at").defaultNow()
+  },
+  (table) => ({
+    versionIdx: index("opt_report_version_idx").on(table.versionId),
+  })
+);
 
 export const jobs = pgTable(
   "jobs",

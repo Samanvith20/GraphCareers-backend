@@ -5,6 +5,7 @@ import {
   activateVersionHandler,
   compareVersionsHandler,
   listEventsHandler,
+  getSuggestionsHandler,
 } from "../controllers/resumeWorkspace.controller.js";
 import { authMiddleware } from "../middleware/auth.js";
 
@@ -26,5 +27,8 @@ router.get("/compare", compareVersionsHandler);
 
 // Get workspace event timeline
 router.get("/events", listEventsHandler);
+
+// Get AI suggestions for a version
+router.get("/versions/:versionId/suggestions", getSuggestionsHandler);
 
 export default router;
