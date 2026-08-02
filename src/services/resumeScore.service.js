@@ -1,3 +1,10 @@
+export function hasSkillMatch(textLower, skill) {
+  if (!textLower || !skill) return false;
+  const escaped = skill.toLowerCase().trim().replace(/[-/\\^$*+?.()|[\]{}]/g, "\\$&");
+  const regex = new RegExp(`(?:^|[^a-z0-9#+])${escaped}(?:$|[^a-z0-9#+])`, "i");
+  return regex.test(textLower);
+}
+
 export function scoreResume({ resumeText, structuredJson, platform, trends, experienceMonths }) {
   if (!resumeText) return { total: 0, keywordMatch: 0, experienceMatch: 0, formatting: 0 };
   
@@ -11,7 +18,7 @@ export function scoreResume({ resumeText, structuredJson, platform, trends, expe
     let matchedCount = 0;
     
     top15.forEach(skillObj => {
-      if (textLower.includes(skillObj.skill.toLowerCase())) {
+      if (hasSkillMatch(textLower, skillObj.skill)) {
          matchedCount += 1;
       }
     });
@@ -68,7 +75,7 @@ export function generateRecommendations({ trends, resumeText, structuredJson, pl
   // Keyword recommendations
   if (trends && trends.topSkills && trends.topSkills.length > 0) {
     const top10 = trends.topSkills.slice(0, 10);
-    const missing = top10.filter(s => !textLower.includes(s.skill.toLowerCase()));
+    const missing = top10.filter(s => !hasSkillMatch(textLower, s.skill));
     
     if (missing.length > 0) {
        const missingNames = missing.map(m => m.skill).join(", ");

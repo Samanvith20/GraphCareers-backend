@@ -99,7 +99,7 @@ export class ToolExecutor {
       parsed: currentResume, 
       generationMs: totalGenerationMs,
       operationsExecuted,
-      operationsSkipped,
+      operationsSkipped: skippedOperations,
       operationsFailed,
       sectionsModified
     };

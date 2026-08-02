@@ -1,4 +1,4 @@
-import { generateObject } from "ai";
+import { generateText } from "ai";
 import { openrouter } from "../lib/openai.js";
 import { z } from "zod";
 import { db } from "../db/index.js";
@@ -50,54 +50,77 @@ export async function generateAndSaveSuggestions(workspace, version, intelligenc
 
     const resumeStructure = buildResumeStructureMap(resumeJson);
 
+    const compactIntelligence = {
+      skills: intelligence?.skills?.verified || [],
+      baseline: {
+        completenessScore: intelligence?.baseline?.completenessScore,
+        missingSections: intelligence?.baseline?.missingSections,
+        weaknesses: intelligence?.baseline?.weaknesses,
+      },
+      metrics: (intelligence?.achievements?.quantifiedMetrics || []).slice(0, 5),
+      experienceLevel: intelligence?.experience?.level,
+    };
+
     const prompt = `
 You are the GraphCareers AI Suggestions Engine.
-Analyze the candidate's current resume and generate highly actionable, 1-click suggestions.
-These suggestions will be displayed in the UI as buttons the user can click to instantly improve their resume.
+Analyze the candidate's current resume and generate 3 to 5 highly actionable, 1-click suggestions.
+Respond ONLY with a valid JSON object wrapped in {"suggestions": [...]}. Do NOT include Markdown fences.
+
+Required JSON Structure:
+{
+  "suggestions": [
+    {
+      "category": "MARKET_SKILL", // or MISSING_METRIC, WEAK_BULLET, SUMMARY_IMPROVEMENT, PROJECT_IMPROVEMENT, ATS_IMPROVEMENT
+      "title": "Short actionable title",
+      "description": "1-2 sentence explanation",
+      "reason": "Why this matters for ATS/recruiters",
+      "actionType": "REWRITE_BULLET", // or REWRITE_SUMMARY, ADD_PROJECT_METRIC
+      "actionPayload": {
+        "instructions": "Specific instruction for the editor",
+        "targetPath": "experience[0].bullets[1]"
+      },
+      "priority": "high", // critical, high, medium, low
+      "estimatedImpact": 5
+    }
+  ]
+}
 
 ══════════════════════════════════════════════════
-CANDIDATE INTELLIGENCE
+CANDIDATE INTELLIGENCE SUMMARY
 ══════════════════════════════════════════════════
-${JSON.stringify(intelligence, null, 2)}
+${JSON.stringify(compactIntelligence)}
 
 ══════════════════════════════════════════════════
-CURRENT RESUME
+CURRENT RESUME STRUCTURE
 ══════════════════════════════════════════════════
-${JSON.stringify(resumeStructure, null, 2)}
+${resumeStructure}
 
 ══════════════════════════════════════════════════
 OPTIMIZATION REPORT (Recent changes)
 ══════════════════════════════════════════════════
-${report ? JSON.stringify(report, null, 2) : "None available (fresh version)"}
-
-══════════════════════════════════════════════════
-RULES
-══════════════════════════════════════════════════
-1. Generate 3 to 5 suggestions maximum.
-2. Focus on missing metrics, weak bullets, ATS keywords, or summary impact.
-3. VERY IMPORTANT: The actionType and actionPayload MUST perfectly map to our Editing API. 
-   - actionType must be a string like "REWRITE_BULLET", "REWRITE_SUMMARY", "ADD_PROJECT_METRIC".
-   - actionPayload.instructions must clearly tell the backend what to do when clicked.
-   - actionPayload.targetPath must point exactly to the array index (e.g. experience[0].bullets[2]) if editing a specific bullet.
+${report ? JSON.stringify(report) : "None available"}
 `;
 
-    const result = await generateObject({
+    const { text } = await generateText({
       model: openrouter(process.env.OPENROUTER_MODEL || "openai/gpt-4o-mini"),
-      schema: suggestionSchema,
       prompt,
-      temperature: 0.3,
+      temperature: 0.2,
     });
 
-    const suggestionsToInsert = result.object.suggestions.map(sugg => ({
+    const cleanText = text.replace(/```json\s*/gi, "").replace(/```\s*/g, "").trim();
+    const parsedData = JSON.parse(cleanText);
+    const suggestionsArray = Array.isArray(parsedData) ? parsedData : (parsedData.suggestions || []);
+
+    const suggestionsToInsert = suggestionsArray.map(sugg => ({
       versionId: version.id,
-      category: sugg.category,
-      title: sugg.title,
-      description: sugg.description,
-      reason: sugg.reason,
-      actionType: sugg.actionType,
-      actionPayload: JSON.stringify(sugg.actionPayload),
-      priority: sugg.priority,
-      estimatedImpact: sugg.estimatedImpact
+      category: sugg.category || "ATS_IMPROVEMENT",
+      title: sugg.title || "Improve Resume Quality",
+      description: sugg.description || "",
+      reason: sugg.reason || "",
+      actionType: sugg.actionType || "REWRITE_BULLET",
+      actionPayload: typeof sugg.actionPayload === "string" ? sugg.actionPayload : JSON.stringify(sugg.actionPayload || {}),
+      priority: sugg.priority || "medium",
+      estimatedImpact: Number(sugg.estimatedImpact) || 3
     }));
 
     if (suggestionsToInsert.length > 0) {
@@ -113,7 +136,12 @@ RULES
 
     return suggestionsToInsert;
   } catch (err) {
-    logger.error("AI Suggestions Engine failed", { versionId: version.id, error: err.message });
+    logger.error("AI Suggestions Engine failed", {
+      versionId: version.id,
+      error: err.message,
+      cause: err.cause,
+      stack: err.stack,
+    });
     // Don't throw, we want suggestions to fail gracefully in the background
     return [];
   }

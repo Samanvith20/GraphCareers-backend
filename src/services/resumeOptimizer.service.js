@@ -6,7 +6,7 @@ import { db } from "../db/index.js";
 import { resumeOptimizations, users, resumes } from "../db/schema.js";
 import { eq } from "drizzle-orm";
 import { normalizeSkill, SKILL_ALIASES } from "../lib/utils.js";
-import { scoreResume, generateRecommendations } from "./resumeScore.service.js";
+import { scoreResume, generateRecommendations, hasSkillMatch } from "./resumeScore.service.js";
 import { computeTargetedTrends } from "./targetedTrend.service.js";
 import { ToolExecutor } from "../engines/toolExecutor.engine.js";
 import { getNeo4jSession } from "../db/neo4j/session.js";
@@ -113,49 +113,37 @@ function validateAndSanitize(parsed, activeVersion, requestId) {
   }
 
   // ── 2. Merge fallback: if AI dropped sections, restore from master ──────────
-  // Contact — always use master (never change name/email/phone)
+  // Contact — always use master (never change name/email/phone/linkedin/github/location)
   if (masterJson?.contact) {
-    parsed.contact = { ...masterJson.contact, ...parsed.contact };
-    // Hard override: never change contact info from original
-    if (masterJson.contact.name)     parsed.contact.name     = masterJson.contact.name;
-    if (masterJson.contact.email)    parsed.contact.email    = masterJson.contact.email;
-    if (masterJson.contact.phone)    parsed.contact.phone    = masterJson.contact.phone;
-    if (masterJson.contact.linkedin) parsed.contact.linkedin = masterJson.contact.linkedin;
-    if (masterJson.contact.github)   parsed.contact.github   = masterJson.contact.github;
+    parsed.contact = {
+      name: masterJson.contact.name || parsed.contact?.name || "",
+      email: masterJson.contact.email || parsed.contact?.email || "",
+      phone: masterJson.contact.phone || parsed.contact?.phone || "",
+      location: masterJson.contact.location || parsed.contact?.location || "",
+      linkedin: masterJson.contact.linkedin || parsed.contact?.linkedin || "",
+      github: masterJson.contact.github || parsed.contact?.github || "",
+    };
   }
 
-  // Experience — if AI returned 0 entries, fall back to master entries
-  if ((!parsed.experience || parsed.experience.length === 0) && masterJson?.experience?.length) {
-    parsed.experience = masterJson.experience;
-    logger.warn("AI dropped all experience entries — restored from master resume", { requestId });
+  // Education — if AI dropped it or returned empty, restore from master
+  if ((!parsed.education || (Array.isArray(parsed.education) && parsed.education.length === 0)) && masterJson?.education) {
+    parsed.education = Array.isArray(masterJson.education) ? masterJson.education : [masterJson.education];
+    logger.info("Restored education section from master resume", { requestId });
   }
 
-  // Education — if AI dropped it, restore from master
-  if ((!parsed.education || parsed.education.length === 0) && masterJson?.education?.length) {
-    parsed.education = masterJson.education;
-  }
-  if (Array.isArray(parsed.education) && parsed.education.length === 0) {
-    delete parsed.education;
+  // Projects — if AI dropped it or returned empty, restore from master
+  if ((!parsed.projects || (Array.isArray(parsed.projects) && parsed.projects.length === 0)) && masterJson?.projects) {
+    parsed.projects = Array.isArray(masterJson.projects) ? masterJson.projects : [masterJson.projects];
   }
 
-  // Projects — if AI dropped it, restore from master
-  if ((!parsed.projects || parsed.projects.length === 0) && masterJson?.projects?.length) {
-    parsed.projects = masterJson.projects;
-  }
-  if (Array.isArray(parsed.projects) && parsed.projects.length === 0) {
-    delete parsed.projects;
+  // Certifications — if AI dropped it or returned empty, restore from master
+  if ((!parsed.certifications || (Array.isArray(parsed.certifications) && parsed.certifications.length === 0)) && masterJson?.certifications) {
+    parsed.certifications = Array.isArray(masterJson.certifications) ? masterJson.certifications : [masterJson.certifications];
   }
 
-  // Certifications — if AI dropped it, restore from master
-  if ((!parsed.certifications || parsed.certifications.length === 0) && masterJson?.certifications?.length) {
-    parsed.certifications = masterJson.certifications;
-  }
-  if (Array.isArray(parsed.certifications) && parsed.certifications.length === 0) {
-    delete parsed.certifications;
-  }
-
-  if (Array.isArray(parsed.experience) && parsed.experience.length === 0) {
-    delete parsed.experience;
+  // Experience — if AI dropped it or returned empty, restore from master
+  if ((!parsed.experience || (Array.isArray(parsed.experience) && parsed.experience.length === 0)) && masterJson?.experience) {
+    parsed.experience = Array.isArray(masterJson.experience) ? masterJson.experience : [masterJson.experience];
   }
 
   // ── 3. Skills section: ONLY include skills the user actually has ────────────
@@ -165,19 +153,20 @@ function validateAndSanitize(parsed, activeVersion, requestId) {
       if (Array.isArray(parsed.skills[category])) {
         // Filter out any skill that is completely absent from the original resume text
         const originalSkillsFiltered = parsed.skills[category].filter((skill) => {
-          const skillLower = skill.toLowerCase();
-          // Accept if found anywhere in original text
-          if (originalText.includes(skillLower)) return true;
-          // Accept if it's a known alias of an existing skill
+          if (!skill || typeof skill !== "string") return false;
+          // Use word-boundary exact match against original text
+          if (hasSkillMatch(originalText, skill)) return true;
+          // Accept if it's explicitly present in masterJson.skills
           if (masterJson?.skills) {
             const allMasterSkills = Object.values(masterJson.skills)
               .flat()
-              .map((s) => s.toLowerCase());
-            if (allMasterSkills.some((ms) => ms.includes(skillLower) || skillLower.includes(ms))) {
+              .map((s) => String(s).toLowerCase());
+            if (allMasterSkills.some((ms) => hasSkillMatch(ms, skill) || hasSkillMatch(skill, ms))) {
               return true;
             }
           }
           strippedCount++;
+          logger.warn("Stripped hallucinated skill from optimized resume", { skill, category, requestId });
           return false;
         });
         parsed.skills[category] = originalSkillsFiltered;
@@ -382,7 +371,7 @@ export async function optimizeResumeForPlatform(contextObj) {
     .values({ userId, platform, status: "processing" })
     .onConflictDoUpdate({
       target: [resumeOptimizations.userId, resumeOptimizations.platform],
-      set: { status: "processing", errorMessage: null },
+      set: { status: "processing", updatedAt: new Date() },
     })
     .returning();
 
@@ -498,9 +487,9 @@ OPTIMIZATION GOAL:
     const originalText  = JSON.stringify(masterResumeJson).toLowerCase();
     const optimizedText = JSON.stringify(sanitized).toLowerCase();
 
-    const keywordsMatched = top15Skills.filter((s) => optimizedText.includes(s));
-    const keywordsMissing = top15Skills.filter((s) => !optimizedText.includes(s));
-    const keywordsAdded   = keywordsMatched.filter((s) => !originalText.includes(s));
+    const keywordsMatched = top15Skills.filter((s) => hasSkillMatch(optimizedText, s));
+    const keywordsMissing = top15Skills.filter((s) => !hasSkillMatch(optimizedText, s));
+    const keywordsAdded   = keywordsMatched.filter((s) => !hasSkillMatch(originalText, s));
 
     // 12. Build "skills to learn" recommendations (skills user DOESN'T have)
     const skillRecommendations = contextObj.executionPlan?.skillRecommendations 

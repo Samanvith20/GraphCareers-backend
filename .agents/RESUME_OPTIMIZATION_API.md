@@ -213,7 +213,7 @@ Allows applying manual or programmatic edits to a specific resume version.
 
 ## 8. JD Optimization (Job Description specific)
 **Base URL**: `/api/resume/jd-optimize`
-
+78
 While `resume-intelligence` optimizes for an entire platform globally, this endpoint allows targeted optimization against a specific, individual Job Description.
 
 - **Optimize for JD**: `POST /:versionId`
