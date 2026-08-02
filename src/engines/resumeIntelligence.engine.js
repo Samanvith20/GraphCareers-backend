@@ -104,16 +104,16 @@ function extractIntelligence(json) {
 
   if (Array.isArray(json.experience)) {
     json.experience.forEach(exp => {
-      if (Array.isArray(exp.highlights)) {
-        exp.highlights.forEach(scanForMetrics);
+      if (Array.isArray(exp.bullets)) {
+        exp.bullets.forEach(scanForMetrics);
       }
       scanForMetrics(exp.description);
     });
   }
   if (Array.isArray(json.projects)) {
     json.projects.forEach(proj => {
-      if (Array.isArray(proj.highlights)) {
-        proj.highlights.forEach(scanForMetrics);
+      if (Array.isArray(proj.bullets)) {
+        proj.bullets.forEach(scanForMetrics);
       }
       scanForMetrics(proj.description);
     });

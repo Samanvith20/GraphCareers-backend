@@ -7,7 +7,7 @@ import { computeTargetedTrends } from "./targetedTrend.service.js";
 import { getVersion } from "./workspaceVersion.service.js";
 import { getNeo4jSession } from "../db/neo4j/session.js";
 import neo4j from "neo4j-driver";
-import { expandSkills } from "../lib/utils.js";
+
 
 /**
  * Runs an ATS score analysis on a specific version and upserts the result.

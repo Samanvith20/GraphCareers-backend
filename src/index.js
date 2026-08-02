@@ -20,6 +20,9 @@ import contactsRoutes from "./routes/contacts.routes.js";
 import referralsRoutes from "./routes/referrals.routes.js";
 import purchaseIntentRoutes from "./routes/purchaseIntent.routes.js";
 import resumeWorkspaceRoutes from "./routes/resumeWorkspace.routes.js";
+import resumeCopilotRoutes from "./routes/resumeCopilot.routes.js";
+import resumeEditorRoutes from "./routes/resumeEditor.routes.js";
+import jdOptimizationRoutes from "./routes/jdOptimization.routes.js";
 
 dotenv.config();
 
@@ -142,6 +145,9 @@ app.use("/api/contacts", contactsRoutes);
 app.use("/api/referrals", referralsRoutes);
 app.use("/api/purchase-intent", purchaseIntentRoutes);
 app.use("/api/resume-workspace", resumeWorkspaceRoutes);
+app.use("/api/resume/copilot", resumeCopilotRoutes);
+app.use("/api/resume/edit", resumeEditorRoutes);
+app.use("/api/resume/jd-optimize", jdOptimizationRoutes);
 
 app.get("/", (req, res) => {
   res.json({ status: "ok", port: PORT });
