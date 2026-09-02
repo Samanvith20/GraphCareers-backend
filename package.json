@@ -5,9 +5,12 @@
   "main": "index.js",
   "type": "module",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
+    "test": "node --test test/resumeAgent/*.test.js",
+    "test:all": "node --test",
+    "test:resume-agent": "node --test test/resumeAgent/*.test.js",
     "start": "node src/index.js",
-    "db:push": "drizzle-kit push --config=drizzle.config.js"
+    "db:push": "drizzle-kit push --config=drizzle.config.js",
+    "db:migrate:resume-agent": "node src/scripts/applyResumeAgentMigration.js"
   },
   "keywords": [],
   "author": "",

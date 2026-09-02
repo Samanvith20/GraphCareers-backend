@@ -3,6 +3,27 @@ import { Document, Packer, Paragraph, TextRun, HeadingLevel, AlignmentType, Bord
 import { AppError } from "../lib/AppError.js";
 import logger from "../logger/logger.js";
 
+function normalizeSkillSections(skills) {
+  if (Array.isArray(skills)) return { Skills: skills };
+  if (!skills || typeof skills !== "object") return {};
+  return Object.fromEntries(
+    Object.entries(skills).map(([category, values]) => [category, Array.isArray(values) ? values : [values].filter(Boolean)]),
+  );
+}
+
+function projectTechnologies(project) {
+  const values = project?.techStack || project?.technologies || project?.skills || [];
+  return Array.isArray(values) ? values : [values].filter(Boolean);
+}
+
+function certificationText(certification) {
+  if (typeof certification === "string") return certification;
+  if (!certification || typeof certification !== "object") return "";
+  return [certification.name || certification.title, certification.issuer, certification.date || certification.year]
+    .filter(Boolean)
+    .join(" — ");
+}
+
 /**
  * Generates a premium ATS-friendly PDF from optimized resume JSON.
  */
@@ -16,7 +37,8 @@ export async function generatePdf(optimizedJson) {
       doc.on("end", () => resolve(Buffer.concat(buffers)));
       doc.on("error", reject);
 
-      const { contact = {}, summary = "", experience = [], projects = [], education = [], skills = {} } = optimizedJson;
+      const { contact = {}, summary = "", experience = [], projects = [], education = [] } = optimizedJson;
+      const skills = normalizeSkillSections(optimizedJson.skills);
 
       const primaryColor = "#111111"; // Almost black for sleek look
       const secondaryColor = "#333333";
@@ -121,8 +143,9 @@ export async function generatePdf(optimizedJson) {
         projects.forEach((proj) => {
           drawSplitText(proj.name || "", proj.date || "", "Helvetica-Bold", "Helvetica", 10);
           
-          if (proj.techStack && proj.techStack.length > 0) {
-            doc.fontSize(9.5).font("Helvetica-Oblique").fillColor(secondaryColor).text(sanitizeText(`Technologies: ${proj.techStack.join(", ")}`), margin, doc.y);
+          const technologies = projectTechnologies(proj);
+          if (technologies.length > 0) {
+            doc.fontSize(9.5).font("Helvetica-Oblique").fillColor(secondaryColor).text(sanitizeText(`Technologies: ${technologies.join(", ")}`), margin, doc.y);
           }
           doc.moveDown(0.1);
 
@@ -165,7 +188,7 @@ export async function generatePdf(optimizedJson) {
         optimizedJson.certifications.forEach((cert) => {
           const y = doc.y;
           doc.fontSize(9.5).font("Helvetica").fillColor(textColor).text("-", margin, y, { lineBreak: false });
-          doc.text(sanitizeText(cert), margin + 12, y, { align: "left", width: contentWidth - 12, lineGap: 1 });
+          doc.text(sanitizeText(certificationText(cert)), margin + 12, y, { align: "left", width: contentWidth - 12, lineGap: 1 });
         });
       }
 
@@ -182,7 +205,8 @@ export async function generatePdf(optimizedJson) {
  */
 export async function generateDocx(optimizedJson) {
   try {
-    const { contact = {}, summary = "", experience = [], projects = [], education = [], skills = {} } = optimizedJson;
+    const { contact = {}, summary = "", experience = [], projects = [], education = [] } = optimizedJson;
+    const skills = normalizeSkillSections(optimizedJson.skills);
 
     const sections = [];
 
@@ -266,8 +290,9 @@ export async function generateDocx(optimizedJson) {
             ],
           })
         );
-        if (proj.techStack && proj.techStack.length > 0) {
-           sections.push(new Paragraph({ text: `Technologies: ${proj.techStack.join(", ")}`, italics: true }));
+        const technologies = projectTechnologies(proj);
+        if (technologies.length > 0) {
+           sections.push(new Paragraph({ text: `Technologies: ${technologies.join(", ")}`, italics: true }));
         }
         (proj.bullets || []).forEach((bullet) => {
           sections.push(new Paragraph({ text: bullet, bullet: { level: 0 }, alignment: AlignmentType.JUSTIFIED }));
@@ -304,7 +329,7 @@ export async function generateDocx(optimizedJson) {
     if (optimizedJson.certifications && optimizedJson.certifications.length > 0) {
       sections.push(new Paragraph({ text: "CERTIFICATIONS", heading: HeadingLevel.HEADING_2 }));
       optimizedJson.certifications.forEach((cert) => {
-         sections.push(new Paragraph({ text: cert, bullet: { level: 0 } }));
+         sections.push(new Paragraph({ text: certificationText(cert), bullet: { level: 0 } }));
       });
     }
 
