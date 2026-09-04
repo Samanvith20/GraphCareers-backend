@@ -6,12 +6,46 @@ function asArray(value) {
   return [value];
 }
 
+function firstPresent(...values) {
+  return values.find((value) => typeof value === "string" && value.trim())?.trim() || null;
+}
+
+function contactFromText(sourceText) {
+  const text = String(sourceText || "");
+  const email = text.match(/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/i)?.[0] || null;
+  const linkedin = text.match(/(?:https?:\/\/)?(?:www\.)?linkedin\.com\/[^\s|,;]+/i)?.[0] || null;
+  const github = text.match(/(?:https?:\/\/)?(?:www\.)?github\.com\/[^\s|,;]+/i)?.[0] || null;
+  const phoneCandidates = text.match(/(?:\+\d{1,3}[\s.-]?)?(?:\(?\d{2,5}\)?[\s.-]?)?(?:\d[\s.-]?){7,12}\d/g) || [];
+  const phone = phoneCandidates.find((candidate) => {
+    const digits = candidate.replace(/\D/g, "");
+    return digits.length >= 10 && digits.length <= 15 && !/^\d{4}[\s.-]\d{1,2}[\s.-]\d{4}$/.test(candidate.trim());
+  })?.trim() || null;
+  return { email, phone, linkedin, github };
+}
+
+export function hydrateResumeContact(resume, { sourceText = "", fallbackContact = {} } = {}) {
+  const hydrated = structuredClone(resume || {});
+  const current = hydrated.contact && typeof hydrated.contact === "object" ? hydrated.contact : {};
+  const detected = contactFromText(sourceText);
+  hydrated.contact = {
+    ...current,
+    name: firstPresent(current.name, hydrated.name, fallbackContact.name),
+    email: firstPresent(current.email, hydrated.email, fallbackContact.email, detected.email),
+    phone: firstPresent(current.phone, hydrated.phone, fallbackContact.phone, detected.phone),
+    location: firstPresent(current.location, hydrated.location, fallbackContact.location),
+    linkedin: firstPresent(current.linkedin, current.linkedinUrl, hydrated.linkedin, hydrated.linkedinUrl, fallbackContact.linkedin, fallbackContact.linkedinUrl, detected.linkedin),
+    github: firstPresent(current.github, current.githubUrl, hydrated.github, hydrated.githubUrl, fallbackContact.github, fallbackContact.githubUrl, detected.github),
+    portfolio: firstPresent(current.portfolio, hydrated.portfolio, fallbackContact.portfolio),
+  };
+  return hydrated;
+}
+
 export function parseResumeSnapshot(value) {
-  if (typeof value === "string") return JSON.parse(value);
+  if (typeof value === "string") return hydrateResumeContact(JSON.parse(value));
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     throw new TypeError("Resume snapshot must be a JSON object");
   }
-  return structuredClone(value);
+  return hydrateResumeContact(value);
 }
 
 export function flattenResumeSkills(resume) {
@@ -87,4 +121,3 @@ export function defaultSkillPath(resume) {
 export function escapeJsonPointer(value) {
   return String(value).replace(/~/g, "~0").replace(/\//g, "~1");
 }
-

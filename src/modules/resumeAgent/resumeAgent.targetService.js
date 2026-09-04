@@ -1,6 +1,8 @@
 import { AppError } from "../../lib/AppError.js";
+import logger from "../../logger/logger.js";
 import { buildExactTarget, buildPlatformTarget, targetFingerprint } from "./domain/target.js";
-import { createTarget, ensureWorkspace, getJobBySourceId, listPlatformJobs } from "./resumeAgent.repository.js";
+import { findAvailablePlatformRoleFromGraph, listPlatformJobsFromGraph } from "./resumeAgent.graphRepository.js";
+import { createTarget, ensureWorkspace, getJobBySourceId } from "./resumeAgent.repository.js";
 import { resumeAgentModelGateway } from "./resumeAgent.modelGateway.js";
 
 function targetResponse(target) {
@@ -22,29 +24,46 @@ function targetResponse(target) {
 
 export async function createPlatformTarget(userId, input, requestId) {
   const workspace = await ensureWorkspace(userId, requestId);
-  const jobRows = await listPlatformJobs({
-    platform: input.platform,
-    role: input.role,
+  const availableRole = await findAvailablePlatformRoleFromGraph({ platform: input.platform, role: input.role });
+  if (!availableRole || availableRole.jobCount < 5) {
+    throw new AppError("Select a role currently available for this platform", 422);
+  }
+  const normalizedInput = { ...input, role: availableRole.name };
+  const selection = await listPlatformJobsFromGraph({
+    platform: normalizedInput.platform,
+    role: normalizedInput.role,
     location: input.location,
     sampleSize: input.sampleSize,
+    requestId,
   });
+  const jobRows = selection.jobs;
   if (jobRows.length < 5) {
+    logger.warn("Not enough Neo4j jobs for a reliable Resume Agent platform target", {
+      requestId,
+      userId,
+      platform: input.platform,
+      role: input.role,
+      location: input.location || null,
+      ...selection.metadata,
+    });
     throw new AppError("Not enough relevant jobs are available to build a reliable platform target", 422);
   }
-  const requirements = buildPlatformTarget({ platform: input.platform, role: input.role, jobs: jobRows });
+  const requirements = buildPlatformTarget({ platform: normalizedInput.platform, role: normalizedInput.role, jobs: jobRows });
+  requirements.market.selection = selection.metadata;
   const sourceSnapshotJson = {
-    filters: input,
+    filters: normalizedInput,
     sampleSize: jobRows.length,
     jobSourceIds: jobRows.map((job) => job.sourceJobId),
+    selection: selection.metadata,
     generatedAt: new Date().toISOString(),
   };
-  const fingerprint = targetFingerprint({ type: "platform_market", input, requirements });
+  const fingerprint = targetFingerprint({ type: "platform_market", input: normalizedInput, requirements });
   const target = await createTarget({
     userId,
     workspaceId: workspace.id,
     type: "platform_market",
-    platform: input.platform,
-    jobTitle: input.role,
+    platform: normalizedInput.platform,
+    jobTitle: normalizedInput.role,
     sourceSnapshotJson,
     requirementsJson: requirements,
     fingerprint,

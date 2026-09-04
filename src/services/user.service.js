@@ -30,6 +30,32 @@ const TIER_LIMITS = {
 
 const uploadDir = path.join(process.cwd(), "uploads/resumes");
 
+function numericClaims(value) {
+  return new Set(
+    (String(value || "").match(/\d[\d,]*(?:\.\d+)?%?/g) || [])
+      .map((number) => number.replaceAll(",", "")),
+  );
+}
+
+function assertParsedClaimsAreSupported(parsed, sourceText) {
+  const sourceNumbers = numericClaims(sourceText);
+  const narrativeFields = [
+    parsed?.bio,
+    ...(parsed?.experience || []).flatMap((entry) => entry?.description || []),
+    ...(parsed?.projects || []).flatMap((entry) => entry?.description || []),
+  ];
+  const unsupported = new Set();
+  for (const field of narrativeFields) {
+    for (const number of numericClaims(field)) {
+      if (!sourceNumbers.has(number)) unsupported.add(number);
+    }
+  }
+  if (unsupported.size) {
+    logger.warn("Resume parser rejected unsupported numeric claims", { unsupportedClaimCount: unsupported.size });
+    throw new AppError("Resume parsing found numerical claims that are not present in the uploaded file. Please retry the upload.", 422);
+  }
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Helper — plan-aware "not enough credits" message
 // ─────────────────────────────────────────────────────────────────────────────
@@ -280,6 +306,7 @@ export async function parseResumeWithAIService(userId, requestId) {
     }
 
     if (!object) throw new Error("Invalid AI response");
+    assertParsedClaimsAreSupported(object, resume.text);
     //console.log("object:;", object);
 
    const cleanedData = {
@@ -331,13 +358,9 @@ export async function parseResumeWithAIService(userId, requestId) {
             fileName: resume.pendingFileName,
             pendingFileName: null,
             errorMessage: null,
+            structuredJson: JSON.stringify(structuredResume),
           })
           .where(eq(resumes.userId, userId));
-      });
-
-      // ✅ NON-CRITICAL (can fail safely)
-      await db.update(resumes).set({
-        structuredJson: JSON.stringify(structuredResume),
       });
 
       await db.insert(aiUsageLogs).values({
@@ -464,10 +487,18 @@ LOCATION & CONTACT RULES
 2. Search the text carefully for any LinkedIn or GitHub URLs (e.g. linkedin.com/in/..., github.com/...). If you find them, extract the full URL. If not present, return null.
 
 ========================
-BIO RULES
+PROFESSIONAL SUMMARY RULES
 ========================
 
-2–3 sentences. Technical background only. No soft skills. No invented technologies.
+If the resume contains a professional summary, copy it faithfully without adding or improving claims.
+If no summary exists, return null. Do not generate a new summary during parsing.
+
+========================
+EXPERIENCE AND PROJECT TEXT RULES
+========================
+
+Copy responsibilities and bullet points faithfully. Do not optimize them during parsing.
+Never add, calculate, combine, or improve numerical outcomes, percentages, money, scale, latency, users, or business impact.
 
 ========================
 RESUME

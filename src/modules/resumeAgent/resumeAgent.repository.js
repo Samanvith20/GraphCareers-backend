@@ -1,4 +1,5 @@
-import { and, asc, desc, eq, ilike, inArray, lt, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, lt, sql } from "drizzle-orm";
+import { createHash } from "node:crypto";
 import { db } from "../../db/index.js";
 import {
   jobs,
@@ -16,18 +17,34 @@ import {
   users,
 } from "../../db/schema.js";
 import { AppError } from "../../lib/AppError.js";
-import { tokenOverlap } from "./domain/text.js";
+import { hydrateResumeContact } from "./domain/resume.js";
+import { stableStringify } from "./domain/text.js";
 
-export async function listPlatformJobs({ platform, role, location, sampleSize }) {
-  const conditions = [sql`lower(${jobs.source}) = ${platform.toLowerCase()}`];
-  if (location) conditions.push(ilike(jobs.location, `%${location}%`));
-  const candidates = await db.select().from(jobs).where(and(...conditions)).orderBy(desc(jobs.postedAt)).limit(500);
-  return candidates
-    .map((job) => ({ job, similarity: tokenOverlap(role, `${job.title || ""} ${job.roleTitle || ""}`) }))
-    .filter((entry) => entry.similarity >= 0.2)
-    .sort((left, right) => right.similarity - left.similarity || Number(new Date(right.job.postedAt || 0)) - Number(new Date(left.job.postedAt || 0)))
-    .slice(0, sampleSize)
-    .map((entry) => entry.job);
+function parseStoredResume(value) {
+  if (!value) return {};
+  try {
+    return typeof value === "string" ? JSON.parse(value) : value;
+  } catch {
+    return {};
+  }
+}
+
+function contactFallback(sourceResume, owner) {
+  const source = parseStoredResume(sourceResume?.structuredJson);
+  return {
+    ...(source.contact || {}),
+    name: source.contact?.name || source.name || owner?.name,
+    email: source.contact?.email || source.email || owner?.email,
+    phone: source.contact?.phone || source.phone,
+    location: source.contact?.location || source.location || owner?.location,
+    linkedin: source.contact?.linkedin || source.linkedin || source.linkedinUrl,
+    github: source.contact?.github || source.github || source.githubUrl,
+    portfolio: source.contact?.portfolio || source.portfolio,
+  };
+}
+
+function masterFingerprint(snapshot) {
+  return createHash("sha256").update(stableStringify(snapshot)).digest("hex");
 }
 
 export async function ensureWorkspace(userId, requestId) {
@@ -37,23 +54,70 @@ export async function ensureWorkspace(userId, requestId) {
     if (!resume?.structuredJson || resume.status !== "completed") {
       throw new AppError("Upload and successfully parse a resume before using Resume Agent", 422);
     }
-    const [existing] = await tx.select().from(resumeWorkspaces).where(
-      and(eq(resumeWorkspaces.userId, userId), eq(resumeWorkspaces.resumeId, resume.id)),
-    );
-    if (existing) return existing;
-
     let parsed;
     try {
-      parsed = typeof resume.structuredJson === "string" ? JSON.parse(resume.structuredJson) : resume.structuredJson;
+      parsed = hydrateResumeContact(
+        typeof resume.structuredJson === "string" ? JSON.parse(resume.structuredJson) : resume.structuredJson,
+        { sourceText: resume.text },
+      );
     } catch {
       throw new AppError("The parsed master resume is invalid and must be uploaded again", 422);
     }
+    const fingerprint = masterFingerprint(parsed);
+    const [existing] = await tx.select().from(resumeWorkspaces).where(
+      and(eq(resumeWorkspaces.userId, userId), eq(resumeWorkspaces.resumeId, resume.id)),
+    );
+    if (existing) {
+      const [latestUpload] = await tx.select().from(resumeVersions).where(and(
+        eq(resumeVersions.workspaceId, existing.id),
+        eq(resumeVersions.source, "upload"),
+      )).orderBy(desc(resumeVersions.versionNumber)).limit(1);
+      let latestFingerprint = null;
+      if (latestUpload) {
+        try {
+          latestFingerprint = masterFingerprint(JSON.parse(latestUpload.snapshotJson));
+        } catch {
+          latestFingerprint = null;
+        }
+      }
+      if (latestFingerprint === fingerprint) return existing;
+
+      const [latest] = await tx
+        .select({ maxVersion: sql`coalesce(max(${resumeVersions.versionNumber}), 0)` })
+        .from(resumeVersions)
+        .where(eq(resumeVersions.workspaceId, existing.id));
+      const [version] = await tx.insert(resumeVersions).values({
+        workspaceId: existing.id,
+        versionNumber: Number(latest.maxVersion) + 1,
+        snapshotJson: JSON.stringify(parsed),
+        source: "upload",
+        sourceMetadata: JSON.stringify({ resumeId: resume.id, masterFingerprint: fingerprint }),
+        parentVersionId: existing.activeVersionId,
+        changeSummary: "Master resume refreshed from the latest uploaded resume",
+      }).returning();
+      const [ready] = await tx.update(resumeWorkspaces).set({
+        activeVersionId: version.id,
+        totalVersions: sql`${resumeWorkspaces.totalVersions} + 1`,
+        status: "ready",
+        updatedAt: new Date(),
+      }).where(eq(resumeWorkspaces.id, existing.id)).returning();
+      await tx.insert(resumeEvents).values({
+        workspaceId: existing.id,
+        userId,
+        eventType: "version_created",
+        versionId: version.id,
+        metadata: JSON.stringify({ versionNumber: version.versionNumber, source: "upload", refreshed: true }),
+      });
+      return ready;
+    }
+
     const [workspace] = await tx.insert(resumeWorkspaces).values({ userId, resumeId: resume.id, status: "idle" }).returning();
     const [version] = await tx.insert(resumeVersions).values({
       workspaceId: workspace.id,
       versionNumber: 1,
       snapshotJson: JSON.stringify(parsed),
       source: "upload",
+      sourceMetadata: JSON.stringify({ resumeId: resume.id, masterFingerprint: fingerprint }),
       changeSummary: "Initial version created from the parsed master resume",
     }).returning();
     const [ready] = await tx.update(resumeWorkspaces).set({
@@ -90,12 +154,36 @@ export async function requireTarget(userId, targetId) {
 
 export async function requireVersion(userId, versionId) {
   const [row] = await db
-    .select({ version: resumeVersions, workspace: resumeWorkspaces })
+    .select({
+      version: resumeVersions,
+      workspace: resumeWorkspaces,
+      sourceResume: resumes,
+      owner: { name: users.name, email: users.email, location: users.location },
+    })
     .from(resumeVersions)
     .innerJoin(resumeWorkspaces, eq(resumeVersions.workspaceId, resumeWorkspaces.id))
+    .innerJoin(resumes, eq(resumeWorkspaces.resumeId, resumes.id))
+    .innerJoin(users, eq(resumeWorkspaces.userId, users.id))
     .where(and(eq(resumeVersions.id, versionId), eq(resumeWorkspaces.userId, userId)));
   if (!row) throw new AppError("Resume version not found", 404);
-  return row;
+  let snapshot;
+  try {
+    snapshot = typeof row.version.snapshotJson === "string"
+      ? JSON.parse(row.version.snapshotJson)
+      : row.version.snapshotJson;
+    if (!snapshot || typeof snapshot !== "object" || Array.isArray(snapshot)) throw new TypeError("Invalid snapshot");
+  } catch {
+    throw new AppError("Resume version contains invalid data", 422);
+  }
+  const hydrated = hydrateResumeContact(snapshot, {
+    sourceText: row.sourceResume.text,
+    fallbackContact: contactFallback(row.sourceResume, row.owner),
+  });
+  return {
+    version: { ...row.version, snapshotJson: JSON.stringify(hydrated) },
+    workspace: row.workspace,
+    sourceResumeText: row.sourceResume.text || "",
+  };
 }
 
 export async function requireWorkspace(userId, workspaceId) {
@@ -104,6 +192,16 @@ export async function requireWorkspace(userId, workspaceId) {
   );
   if (!workspace) throw new AppError("Resume workspace not found", 404);
   return workspace;
+}
+
+export async function requireLatestMasterVersion(userId, workspaceId) {
+  await requireWorkspace(userId, workspaceId);
+  const [version] = await db.select().from(resumeVersions).where(and(
+    eq(resumeVersions.workspaceId, workspaceId),
+    eq(resumeVersions.source, "upload"),
+  )).orderBy(desc(resumeVersions.versionNumber)).limit(1);
+  if (!version) throw new AppError("No master resume version is available", 422);
+  return version;
 }
 
 export async function getWorkspaceOverview(userId, requestId) {
@@ -193,7 +291,15 @@ export async function getRunContext(userId, runId) {
       eq(resumeChangeProposals.runId, runId),
     )).orderBy(asc(resumeChangeProposals.createdAt)),
   ]);
-  return { run, target, version: version.version, workspace: version.workspace, assertions, proposals };
+  return {
+    run,
+    target,
+    version: version.version,
+    workspace: version.workspace,
+    assertions,
+    proposals,
+    sourceEvidenceText: version.sourceResumeText,
+  };
 }
 
 export async function updateRun(runId, values) {

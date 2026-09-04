@@ -2,6 +2,7 @@ import { AppError } from "../../lib/AppError.js";
 import { applyResumePatches } from "./domain/patches.js";
 import { parseResumeSnapshot } from "./domain/resume.js";
 import { scoreResumeForTarget } from "./domain/scoring.js";
+import { canCreateResumeVersion } from "./domain/versionPolicy.js";
 import {
   finalizeRunWithVersion,
   getRunContext,
@@ -34,7 +35,7 @@ export async function decideProposal(userId, proposalId, decision) {
   }]);
   const beforeScore = scoreResumeForTarget(resume, context.target.requirementsJson, context.target.type);
   const afterScore = scoreResumeForTarget(patched.resume, context.target.requirementsJson, context.target.type);
-  if (afterScore.overall <= beforeScore.overall) {
+  if (!canCreateResumeVersion({ changeCount: 1, scoreBefore: beforeScore, scoreAfter })) {
     await updateProposal(proposalId, { status: "rejected", decidedAt: new Date() });
     throw new AppError("The proposal was not applied because it did not improve the resume score", 409);
   }
@@ -47,7 +48,7 @@ export async function decideProposal(userId, proposalId, decision) {
       scoreAfter: afterScore,
       source: "agent_chat",
       changeSummary: proposal.rationale,
-      resultJson: { changed: true, proposalId, improvement: afterScore.overall - beforeScore.overall },
+      resultJson: { changed: true, proposalId, improvement: afterScore.overall - beforeScore.overall, creditsCharged: FOLLOWUP_EDIT_CREDIT_COST },
       proposalIds: [proposal.id],
     });
     return { ...proposal, status: "applied", outputVersionId: finalized.version.id, scoreAfter: afterScore };

@@ -3,16 +3,32 @@ import { normalizeTerm, stableStringify, tokenOverlap, uniqueTerms } from "./tex
 
 const COMMON_SKILLS = [
   "Java", "JavaScript", "TypeScript", "Python", "C#", "C++", "Go", "Rust", "PHP", "Ruby", "Kotlin", "Swift",
-  "React", "Next.js", "Angular", "Vue.js", "Node.js", "Express", "NestJS", "Spring Boot", ".NET", "Django", "Flask", "FastAPI",
+  "React", "Next.js", "Angular", "Vue.js", "Node.js", "Express", "NestJS", "Spring Boot", "Spring Framework", ".NET", "Django", "Flask", "FastAPI",
   "HTML", "CSS", "Tailwind CSS", "REST", "GraphQL", "Microservices", "System Design", "Data Structures", "Algorithms",
-  "PostgreSQL", "MySQL", "MongoDB", "Redis", "Elasticsearch", "DynamoDB", "SQL", "NoSQL",
-  "AWS", "Azure", "Google Cloud", "Docker", "Kubernetes", "Terraform", "Jenkins", "GitHub Actions", "CI/CD", "Linux", "Git",
+  "PostgreSQL", "MySQL", "MongoDB", "Redis", "Elasticsearch", "DynamoDB", "SQL", "NoSQL", "Hibernate", "JPA",
+  "AWS", "Azure", "Azure DevOps", "Google Cloud", "Docker", "Kubernetes", "Terraform", "Jenkins", "GitHub Actions", "CI/CD", "Linux", "Git",
   "Kafka", "RabbitMQ", "Spark", "Hadoop", "Airflow", "dbt", "Snowflake", "Databricks",
   "Machine Learning", "Deep Learning", "NLP", "LLM", "Generative AI", "TensorFlow", "PyTorch", "scikit-learn", "Pandas", "NumPy",
   "Power BI", "Tableau", "Excel", "Figma", "Product Management", "Agile", "Scrum", "Jira", "Salesforce", "SAP",
 ];
 
 const SKILL_LOOKUP = new Map(COMMON_SKILLS.map((skill) => [normalizeTerm(skill), skill]));
+const MARKET_SKILL_ALIASES = new Map([
+  ["fast api", "FastAPI"],
+  ["nodejs", "Node.js"],
+  ["reactjs", "React"],
+  ["rest api", "REST"],
+  ["restful api", "REST"],
+  ["spring", "Spring Framework"],
+  ["postgres", "PostgreSQL"],
+  ["k8s", "Kubernetes"],
+  ["amazon web services", "AWS"],
+  ["google cloud platform", "Google Cloud"],
+]);
+const MARKET_SKILL_NOISE = new Set([
+  "api", "application", "applications", "backend", "backend development", "boot", "core", "development",
+  "engineering", "framework", "front end", "frontend", "full stack", "fullstack", "programming", "software", "software development", "technology", "tools",
+]);
 
 function extractKnownSkills(text) {
   const normalizedText = ` ${normalizeTerm(text)} `;
@@ -21,6 +37,17 @@ function extractKnownSkills(text) {
     if (normalizedText.includes(` ${normalized} `)) matches.push(display);
   }
   return matches;
+}
+
+function canonicalizeMarketSkill(value) {
+  const display = String(value || "").trim();
+  const normalized = normalizeTerm(display);
+  if (!normalized || MARKET_SKILL_NOISE.has(normalized)) return [];
+  if (SKILL_LOOKUP.has(normalized)) return [SKILL_LOOKUP.get(normalized)];
+  if (MARKET_SKILL_ALIASES.has(normalized)) return [MARKET_SKILL_ALIASES.get(normalized)];
+  const discovered = extractKnownSkills(display);
+  if (discovered.length) return discovered;
+  return normalized.split(" ").length <= 4 ? [display] : [];
 }
 
 function extractResponsibilities(description) {
@@ -95,7 +122,7 @@ export function buildPlatformTarget({ platform, role, jobs, now = new Date() }) 
       ...(job.skillsTechnical || []),
       ...(job.skillsTools || []),
       ...extractKnownSkills(job.description || ""),
-    ]);
+    ].flatMap(canonicalizeMarketSkill));
     for (const skill of skills) {
       const key = normalizeTerm(skill);
       const current = demand.get(key) || { name: skill, weighted: 0, jobs: 0 };
@@ -103,7 +130,7 @@ export function buildPlatformTarget({ platform, role, jobs, now = new Date() }) 
       current.jobs += 1;
       demand.set(key, current);
     }
-    if (Number.isFinite(Number(job.minExp))) {
+    if (job.minExp !== null && job.minExp !== undefined && job.minExp !== "" && Number.isFinite(Number(job.minExp))) {
       minExperienceTotal += Number(job.minExp);
       minExperienceCount += 1;
     }
@@ -141,4 +168,3 @@ export function buildPlatformTarget({ platform, role, jobs, now = new Date() }) 
 export function targetFingerprint(value) {
   return createHash("sha256").update(stableStringify(value)).digest("hex");
 }
-

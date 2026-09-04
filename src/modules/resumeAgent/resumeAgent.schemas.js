@@ -8,6 +8,15 @@ export const targetIdParamsSchema = uuidParams;
 export const runIdParamsSchema = uuidParams;
 export const proposalIdParamsSchema = uuidParams;
 
+export const platformRolesParamsSchema = z.object({
+  platform: z.string().trim().min(2).max(100).transform((value) => value.toLowerCase()),
+});
+
+export const platformRolesQuerySchema = z.object({
+  search: z.string().trim().max(100).default(""),
+  limit: z.coerce.number().int().min(1).max(200).default(100),
+});
+
 export const platformTargetSchema = z.object({
   platform: z.string().trim().min(2).max(100).transform((value) => value.toLowerCase()),
   role: z.string().trim().min(2).max(200),

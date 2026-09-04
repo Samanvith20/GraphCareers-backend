@@ -43,6 +43,29 @@ test("fact guard accepts explicitly user-attested evidence", () => {
   assert.equal(result.safe, true);
 });
 
+test("fact guard does not move a metric from another source bullet", () => {
+  const facts = buildVerifiedFacts(resume, [], "Improved API latency by 20%.");
+  const result = validateProposedChange({
+    beforeValue: "Built the deployment pipeline.",
+    afterValue: "Built the deployment pipeline and improved latency by 20%.",
+    target: { requiredSkills: [], preferredSkills: [] },
+    verifiedFacts: facts,
+  });
+  assert.equal(result.safe, false);
+  assert.ok(result.violations.some((item) => item.code === "UNVERIFIED_METRIC" && item.value === "20%"));
+});
+
+test("fact guard accepts a metric preserved in the same source bullet", () => {
+  const facts = buildVerifiedFacts(resume, [], "Improved API latency by 20%.");
+  const result = validateProposedChange({
+    beforeValue: "Improved API latency by 20%.",
+    afterValue: "Reduced API latency by 20%.",
+    target: { requiredSkills: [], preferredSkills: [] },
+    verifiedFacts: facts,
+  });
+  assert.equal(result.safe, true);
+});
+
 test("fact guard blocks changes to protected identity fields", () => {
   const facts = buildVerifiedFacts(resume, []);
   const result = validateProposedChange({

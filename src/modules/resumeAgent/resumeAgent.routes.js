@@ -23,6 +23,7 @@ import {
   getVersionHandler,
   getWorkspaceHandler,
   listToolsHandler,
+  listPlatformRolesHandler,
 } from "./resumeAgent.controller.js";
 
 const router = express.Router();
@@ -31,6 +32,7 @@ const userKey = (req) => req.userId;
 
 router.get("/tools", listToolsHandler);
 router.get("/workspace", getWorkspaceHandler);
+router.get("/platforms/:platform/roles", applyRateLimit(resumeAgentTargetLimiter, userKey), listPlatformRolesHandler);
 router.post("/targets/platform", applyRateLimit(resumeAgentTargetLimiter, userKey), createPlatformTargetHandler);
 router.post("/targets/career-page", applyRateLimit(resumeAgentTargetLimiter, userKey), createCareerTargetHandler);
 router.post("/targets/manual-jd", applyRateLimit(resumeAgentTargetLimiter, userKey), createManualTargetHandler);

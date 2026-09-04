@@ -8,9 +8,12 @@
     "test": "node --test test/resumeAgent/*.test.js",
     "test:all": "node --test",
     "test:resume-agent": "node --test test/resumeAgent/*.test.js",
+    "test:resume-agent:provider": "node src/scripts/testResumeAgentProvider.js",
     "start": "node src/index.js",
+    "worker:resume-agent": "node src/workers/resumeAgentWorker.js",
     "db:push": "drizzle-kit push --config=drizzle.config.js",
-    "db:migrate:resume-agent": "node src/scripts/applyResumeAgentMigration.js"
+    "db:migrate:resume-agent": "node src/scripts/applyResumeAgentMigration.js",
+    "graph:prepare:resume-agent": "node src/scripts/prepareResumeAgentGraph.js"
   },
   "keywords": [],
   "author": "",

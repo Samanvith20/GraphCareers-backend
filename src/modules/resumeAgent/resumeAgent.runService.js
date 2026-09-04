@@ -5,7 +5,8 @@ import { buildVerifiedFacts, validateProposedChange } from "./domain/factGuard.j
 import { defaultSkillPath, parseResumeSnapshot } from "./domain/resume.js";
 import { scoreResumeForTarget } from "./domain/scoring.js";
 import { normalizeTerm, uniqueTerms } from "./domain/text.js";
-import { resumeAgentModelGateway } from "./resumeAgent.modelGateway.js";
+import { canCreateResumeVersion } from "./domain/versionPolicy.js";
+import { isRetryableModelError, resumeAgentModelGateway } from "./resumeAgent.modelGateway.js";
 import {
   createRunWithReservation,
   clearRetryableProposals,
@@ -17,15 +18,38 @@ import {
   reserveCreditsForExistingRun,
   releaseReservation,
   requireRun,
+  requireLatestMasterVersion,
   requireTarget,
   requireVersion,
-  requireWorkspace,
   updateRun,
 } from "./resumeAgent.repository.js";
 import { enqueueResumeAgentRun } from "./resumeAgent.queue.js";
 
 const CREDIT_COST = { platform_market: 2, career_job: 3, manual_jd: 3 };
 export const FOLLOWUP_EDIT_CREDIT_COST = 1;
+
+function publicRunFailure(error) {
+  if (error?.name === "AbortError") {
+    return { code: "MODEL_TIMEOUT", message: "Resume generation timed out while waiting for the AI provider." };
+  }
+  const statusCode = Number(error?.statusCode);
+  if (statusCode === 401 || statusCode === 403) {
+    return { code: "MODEL_AUTH_ERROR", message: "Resume generation is temporarily unavailable because the AI provider credentials were rejected." };
+  }
+  if (statusCode === 402) {
+    return { code: "MODEL_BILLING_ERROR", message: "Resume generation is temporarily unavailable because the AI provider account requires attention." };
+  }
+  if (statusCode === 429) {
+    return { code: "MODEL_RATE_LIMITED", message: "The AI provider is busy right now. Please check this run again shortly." };
+  }
+  if (Number.isFinite(statusCode) && statusCode >= 500) {
+    return { code: "MODEL_UNAVAILABLE", message: "The AI provider is temporarily unavailable. Please try again later." };
+  }
+  if (error?.name === "AI_APICallError") {
+    return { code: "MODEL_PROVIDER_ERROR", message: "The AI provider could not complete this resume. Please try again later." };
+  }
+  return { code: "RUN_FAILED", message: "Resume generation failed unexpectedly. Please try again later." };
+}
 
 function publicRun(run) {
   return {
@@ -53,8 +77,8 @@ export async function createAgentRun(userId, input, requestId) {
     const { workspace } = await requireVersion(userId, baseVersionId);
     if (workspace.id !== workspaceId) throw new AppError("Base version belongs to another resume workspace", 409);
   } else {
-    const workspace = await requireWorkspace(userId, workspaceId);
-    baseVersionId = workspace?.activeVersionId;
+    const masterVersion = await requireLatestMasterVersion(userId, workspaceId);
+    baseVersionId = masterVersion.id;
   }
   if (!baseVersionId) throw new AppError("No active resume version is available", 422);
   const creditCost = input.mode === "analyze" ? 0 : CREDIT_COST[target.type];
@@ -86,8 +110,8 @@ export async function createAgentRun(userId, input, requestId) {
   return { ...publicRun(run), idempotentReplay: !created };
 }
 
-function proposalsFromModel({ modelResult, resume, target, assertions, run, userId, autoApprove = true }) {
-  const verifiedFacts = buildVerifiedFacts(resume, assertions);
+function proposalsFromModel({ modelResult, resume, target, assertions, sourceEvidenceText, run, userId, autoApprove = true }) {
+  const verifiedFacts = buildVerifiedFacts(resume, assertions, sourceEvidenceText);
   const proposals = [];
   for (const candidate of modelResult.proposals || []) {
     let beforeValue;
@@ -120,7 +144,7 @@ function proposalsFromModel({ modelResult, resume, target, assertions, run, user
   return proposals;
 }
 
-export async function processAgentRun(userId, runId, requestId) {
+export async function processAgentRun(userId, runId, requestId, execution = {}) {
   const initial = await getRunContext(userId, runId);
   if (["completed", "no_improvement", "cancelled"].includes(initial.run.status)) return publicRun(initial.run);
   if (initial.run.status === "failed") await clearRetryableProposals(runId);
@@ -150,6 +174,7 @@ export async function processAgentRun(userId, runId, requestId) {
       resume,
       target,
       assertions: initial.assertions,
+      sourceEvidenceText: initial.sourceEvidenceText,
       run: initial.run,
       userId,
     });
@@ -163,7 +188,7 @@ export async function processAgentRun(userId, runId, requestId) {
     })));
     const scoreAfter = scoreResumeForTarget(patchResult.resume, target, initial.target.type);
 
-    if (safe.length === 0 || scoreAfter.overall <= scoreBefore.overall) {
+    if (!canCreateResumeVersion({ changeCount: safe.length, scoreBefore, scoreAfter })) {
       await releaseReservation(runId);
       const status = blocked.length ? "awaiting_confirmation" : "no_improvement";
       const updated = await updateRun(runId, {
@@ -174,7 +199,7 @@ export async function processAgentRun(userId, runId, requestId) {
           keptOriginal: true,
           safeProposalCount: safe.length,
           confirmationRequiredCount: blocked.length,
-          reason: safe.length === 0 ? "No evidence-safe changes were available" : "The candidate version did not improve the transparent score",
+          reason: safe.length === 0 ? "No evidence-safe changes were available" : "The candidate version reduced the transparent score",
         },
         completedAt: status === "no_improvement" ? new Date() : null,
       });
@@ -197,19 +222,45 @@ export async function processAgentRun(userId, runId, requestId) {
         appliedProposalCount: safe.length,
         confirmationRequiredCount: blocked.length,
         improvement: scoreAfter.overall - scoreBefore.overall,
+        creditsCharged: CREDIT_COST[initial.target.type],
       },
       proposalIds: safe.map((proposal) => proposal.id),
     });
     return publicRun(finalized.run);
   } catch (error) {
-    await updateRun(runId, {
+    const attemptNumber = Number(execution.attemptNumber || 1);
+    const maximumAttempts = Number(execution.maximumAttempts || 1);
+    const retryable = isRetryableModelError(error);
+    const retryScheduled = retryable && attemptNumber < maximumAttempts;
+    const failure = publicRunFailure(error);
+    await updateRun(runId, retryScheduled ? {
+      status: "pending",
+      errorCode: null,
+      errorMessage: null,
+      completedAt: null,
+    } : {
       status: "failed",
-      errorCode: error.name === "AbortError" ? "MODEL_TIMEOUT" : "RUN_FAILED",
-      errorMessage: error.message,
+      errorCode: failure.code,
+      errorMessage: failure.message,
       completedAt: new Date(),
     });
-    await recordAgentEvent({ runId, userId, eventType: "run_failed", payloadJson: { message: error.message } });
-    logger.error("Resume agent run failed", { requestId, userId, runId, error: error.message, stack: error.stack });
+    await recordAgentEvent({
+      runId,
+      userId,
+      eventType: retryScheduled ? "run_retry_scheduled" : "run_failed",
+      payloadJson: { attemptNumber, maximumAttempts, retryable, code: failure.code },
+    });
+    logger.error("Resume agent run attempt failed", {
+      requestId,
+      userId,
+      runId,
+      attemptNumber,
+      maximumAttempts,
+      retryable,
+      retryScheduled,
+      error: error.message,
+      stack: error.stack,
+    });
     throw error;
   }
 }
@@ -252,6 +303,7 @@ export async function proposeChatEdit(userId, runId, instruction, requestId) {
     resume,
     target,
     assertions: context.assertions,
+    sourceEvidenceText: context.sourceEvidenceText,
     run: context.run,
     userId,
     autoApprove: false,
@@ -384,9 +436,9 @@ export async function confirmMissingSkill(userId, runId, input, requestId) {
   })));
   const beforeScore = scoreResumeForTarget(resume, context.target.requirementsJson, context.target.type);
   const afterScore = scoreResumeForTarget(patched.resume, context.target.requirementsJson, context.target.type);
-  if (afterScore.overall <= beforeScore.overall) {
+  if (!canCreateResumeVersion({ changeCount: proposals.length, scoreBefore: beforeScore, scoreAfter: afterScore })) {
     await recordAgentEvent({ runId, userId, eventType: "confirmed_fact_saved_without_resume_change", payloadJson: { factId: fact.id, skill: input.skill } });
-    return { changed: false, factId: fact.id, scoreBefore: beforeScore, scoreAfter: afterScore, message: "The fact was saved, but the resume was not changed because the score did not improve." };
+    return { changed: false, factId: fact.id, scoreBefore: beforeScore, scoreAfter: afterScore, message: "The fact was saved, but the resume was not changed because it reduced the resume score." };
   }
 
   await reserveCreditsForExistingRun(runId, userId, FOLLOWUP_EDIT_CREDIT_COST);
@@ -397,7 +449,7 @@ export async function confirmMissingSkill(userId, runId, input, requestId) {
       scoreAfter: afterScore,
       source: "fact_confirmation",
       changeSummary: `Added user-confirmed evidence for ${input.skill}`,
-      resultJson: { changed: true, factId: fact.id, improvement: afterScore.overall - beforeScore.overall },
+      resultJson: { changed: true, factId: fact.id, improvement: afterScore.overall - beforeScore.overall, creditsCharged: FOLLOWUP_EDIT_CREDIT_COST },
       proposalIds: proposals.map((proposal) => proposal.id),
     });
     logger.info("User-confirmed skill applied", { requestId, userId, runId, skill: input.skill, versionId: finalized.version.id });

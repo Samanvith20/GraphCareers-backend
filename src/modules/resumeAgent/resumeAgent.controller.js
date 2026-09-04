@@ -9,12 +9,15 @@ import {
   missingSkillConfirmationSchema,
   parseRequest,
   platformTargetSchema,
+  platformRolesParamsSchema,
+  platformRolesQuerySchema,
   proposalDecisionSchema,
   proposalIdParamsSchema,
   runIdParamsSchema,
   targetIdParamsSchema,
 } from "./resumeAgent.schemas.js";
 import { createCareerTarget, createManualTarget, createPlatformTarget } from "./resumeAgent.targetService.js";
+import { listPlatformRolesFromGraph } from "./resumeAgent.graphRepository.js";
 import { confirmMissingSkill, createAgentRun, getAgentRun } from "./resumeAgent.runService.js";
 import { getResumeAgentMessages, chatWithResumeAgent } from "./resumeAgent.chatService.js";
 import { decideProposal } from "./resumeAgent.proposalService.js";
@@ -44,6 +47,13 @@ function parseStoredJson(value, fallback = null) {
 
 export const listToolsHandler = handler(async (_req, res) => {
   res.json({ success: true, tools: RESUME_AGENT_TOOLS });
+});
+
+export const listPlatformRolesHandler = handler(async (req, res) => {
+  const { platform } = parseRequest(platformRolesParamsSchema, req.params);
+  const query = parseRequest(platformRolesQuerySchema, req.query);
+  const result = await listPlatformRolesFromGraph({ platform, ...query, requestId: req.requestId });
+  res.json({ success: true, platform, ...result });
 });
 
 export const getWorkspaceHandler = handler(async (req, res) => {

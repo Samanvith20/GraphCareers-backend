@@ -1,6 +1,11 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { careerTargetSchema, missingSkillConfirmationSchema } from "../../src/modules/resumeAgent/resumeAgent.schemas.js";
+import {
+  careerTargetSchema,
+  missingSkillConfirmationSchema,
+  platformRolesParamsSchema,
+  platformRolesQuerySchema,
+} from "../../src/modules/resumeAgent/resumeAgent.schemas.js";
 
 test("career target requires a stored job id or complete inline job", () => {
   assert.equal(careerTargetSchema.safeParse({ companyName: "Example" }).success, false);
@@ -21,4 +26,10 @@ test("professional skill confirmation requires usage evidence", () => {
     organizationOrProject: "Example Corp",
     usageDetails: "Deployed three services using deployments and services.",
   }).success, true);
+});
+
+test("platform role options normalize the platform and bound the result limit", () => {
+  assert.deepEqual(platformRolesParamsSchema.parse({ platform: " Naukri " }), { platform: "naukri" });
+  assert.deepEqual(platformRolesQuerySchema.parse({}), { search: "", limit: 100 });
+  assert.equal(platformRolesQuerySchema.safeParse({ limit: 201 }).success, false);
 });

@@ -35,3 +35,34 @@ test("target fingerprints are stable across object key order", () => {
   assert.equal(targetFingerprint({ a: 1, b: 2 }), targetFingerprint({ b: 2, a: 1 }));
 });
 
+test("platform target removes noisy fragments and canonicalizes composite graph skills", () => {
+  const jobs = Array.from({ length: 10 }, () => ({
+    title: "Backend Developer",
+    roleTitle: "Backend Developer",
+    postedAt: new Date(),
+    skillsTechnical: ["boot", "development", "java development", "postgresql & jpa/hibernate", "fast api"],
+    skillsTools: [],
+    minExp: 2,
+  }));
+  const target = buildPlatformTarget({ platform: "naukri", role: "Backend Engineer", jobs });
+  const names = [...target.requiredSkills, ...target.preferredSkills].map((skill) => skill.name);
+  assert.ok(names.includes("Java"));
+  assert.ok(names.includes("PostgreSQL"));
+  assert.ok(names.includes("JPA"));
+  assert.ok(names.includes("Hibernate"));
+  assert.ok(names.includes("FastAPI"));
+  assert.ok(!names.includes("boot"));
+  assert.ok(!names.includes("development"));
+});
+
+test("platform target does not treat a missing minimum experience as zero years", () => {
+  const target = buildPlatformTarget({
+    platform: "naukri",
+    role: "Backend Engineer",
+    jobs: [
+      { title: "Backend Engineer", roleTitle: "Backend Engineer", skillsTechnical: ["Java"], minExp: null },
+      { title: "Backend Engineer", roleTitle: "Backend Engineer", skillsTechnical: ["Java"], minExp: 4 },
+    ],
+  });
+  assert.equal(target.constraints.minExperience, 4);
+});

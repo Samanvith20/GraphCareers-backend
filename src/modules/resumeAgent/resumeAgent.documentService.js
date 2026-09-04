@@ -26,6 +26,9 @@ function validateExtractedText(resume, extractedText) {
   const required = [
     resume?.contact?.name,
     resume?.contact?.email,
+    resume?.contact?.phone,
+    resume?.contact?.linkedin,
+    resume?.contact?.github,
     ...(resume?.experience || []).map((entry) => entry.company),
   ].filter(Boolean);
   const missingCriticalFields = required.filter((value) => !normalizeTerm(extractedText).includes(normalizeTerm(value)));

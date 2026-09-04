@@ -2,26 +2,38 @@ import { flattenResumeSkills, resumeEvidenceText } from "./resume.js";
 import { includesTerm, normalizeTerm } from "./text.js";
 
 function extractNumbers(value) {
-  return new Set(String(value || "").match(/\d+(?:\.\d+)?%?/g) || []);
+  return new Set(
+    (String(value || "").match(/\d[\d,]*(?:\.\d+)?%?/g) || [])
+      .map((number) => number.replaceAll(",", "")),
+  );
 }
 
-export function buildVerifiedFacts(resume, assertions = []) {
+export function buildVerifiedFacts(resume, assertions = [], sourceEvidenceText = null) {
+  const resumeText = resumeEvidenceText(resume);
+  const trustedSourceText = String(sourceEvidenceText || "").trim() || resumeText;
   const skills = new Set(flattenResumeSkills(resume).map(normalizeTerm));
-  const evidenceParts = [resumeEvidenceText(resume)];
+  const assertionEvidenceParts = [];
   for (const assertion of assertions) {
     if (assertion.status && assertion.status !== "verified") continue;
     if (assertion.factType === "skill") skills.add(normalizeTerm(assertion.factKey));
-    evidenceParts.push(JSON.stringify(assertion.valueJson || {}), JSON.stringify(assertion.evidenceJson || {}));
+    assertionEvidenceParts.push(JSON.stringify(assertion.valueJson || {}), JSON.stringify(assertion.evidenceJson || {}));
   }
-  return { skills, evidenceText: evidenceParts.join(" ") };
+  return {
+    skills,
+    evidenceText: [trustedSourceText, ...assertionEvidenceParts].join(" "),
+    sourceEvidenceText: trustedSourceText,
+    assertionEvidenceText: assertionEvidenceParts.join(" "),
+  };
 }
 
 export function validateProposedChange({ beforeValue, afterValue, target, verifiedFacts, claimedSkills = [] }) {
   const violations = [];
   const beforeNumbers = extractNumbers(beforeValue);
-  const evidenceNumbers = extractNumbers(verifiedFacts.evidenceText);
+  const sourceNumbers = extractNumbers(verifiedFacts.sourceEvidenceText);
+  const assertionNumbers = extractNumbers(verifiedFacts.assertionEvidenceText);
   for (const number of extractNumbers(afterValue)) {
-    if (!beforeNumbers.has(number) && !evidenceNumbers.has(number)) {
+    const supportedOriginalClaim = beforeNumbers.has(number) && sourceNumbers.has(number);
+    if (!supportedOriginalClaim && !assertionNumbers.has(number)) {
       violations.push({ code: "UNVERIFIED_METRIC", value: number });
     }
   }
@@ -57,5 +69,8 @@ export function validateProposedChange({ beforeValue, afterValue, target, verifi
     }
   }
 
-  return { safe: violations.length === 0, violations };
+  const uniqueViolations = violations.filter((violation, index, all) => (
+    all.findIndex((candidate) => candidate.code === violation.code && candidate.value === violation.value) === index
+  ));
+  return { safe: uniqueViolations.length === 0, violations: uniqueViolations };
 }
