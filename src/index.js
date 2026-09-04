@@ -15,14 +15,10 @@ import { httpRequestDuration, register } from "./lib/metrices.js";
 import logger from "./logger/logger.js";
 import Sentry from "./lib/sentry.js";
 
-import resumeIntelligenceRoutes from "./routes/resumeIntelligence.routes.js";
 import contactsRoutes from "./routes/contacts.routes.js";
 import referralsRoutes from "./routes/referrals.routes.js";
 import purchaseIntentRoutes from "./routes/purchaseIntent.routes.js";
-import resumeWorkspaceRoutes from "./routes/resumeWorkspace.routes.js";
-import resumeCopilotRoutes from "./routes/resumeCopilot.routes.js";
-import resumeEditorRoutes from "./routes/resumeEditor.routes.js";
-import jdOptimizationRoutes from "./routes/jdOptimization.routes.js";
+import resumeAgentRoutes from "./modules/resumeAgent/resumeAgent.routes.js";
 
 dotenv.config();
 
@@ -140,14 +136,10 @@ app.use("/api/job-applications", jobApplicationRoutes);
 app.use("/api/ai",aiRoutes)
 app.use("/api/payments",paymentRoutes)
 
-app.use("/api/resume-intelligence", resumeIntelligenceRoutes);
 app.use("/api/contacts", contactsRoutes);
 app.use("/api/referrals", referralsRoutes);
 app.use("/api/purchase-intent", purchaseIntentRoutes);
-app.use("/api/resume-workspace", resumeWorkspaceRoutes);
-app.use("/api/resume/copilot", resumeCopilotRoutes);
-app.use("/api/resume/edit", resumeEditorRoutes);
-app.use("/api/resume/jd-optimize", jdOptimizationRoutes);
+app.use("/api/resume-agent", resumeAgentRoutes);
 
 app.get("/", (req, res) => {
   res.json({ status: "ok", port: PORT });

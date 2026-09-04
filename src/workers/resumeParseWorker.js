@@ -2,7 +2,7 @@ import { Worker } from "bullmq";
 import { connection } from "../queue/connection.js";
 import "../config/env.js";
 import mammoth from "mammoth";
-import { extractText } from "unpdf";
+import { extractLinks, extractText, getDocumentProxy } from "unpdf";
 
 import { db } from "../db/index.js";
 import { resumes } from "../db/schema.js";
@@ -30,8 +30,13 @@ Sentry.setTag("requestId", requestId);
       let text = "";
 
       if (fileType === "pdf") {
-        const result = await extractText(new Uint8Array(buffer));
-        text = Array.isArray(result.text) ? result.text.join(" ") : result.text;
+        const pdf = await getDocumentProxy(new Uint8Array(buffer));
+        const [textResult, linkResult] = await Promise.all([
+          extractText(pdf),
+          extractLinks(pdf),
+        ]);
+        const extractedText = Array.isArray(textResult.text) ? textResult.text.join(" ") : textResult.text;
+        text = [extractedText, ...(linkResult.links || [])].filter(Boolean).join(" ");
       }
 
       if (fileType === "docx") {
@@ -61,7 +66,9 @@ Sentry.setTag("requestId", requestId);
             text,
             pendingFileName: fileName,
             status: "processing",
+            isResumeParsed: false,
             errorMessage: null,
+            uploadedAt: new Date(),
           }
         });
 

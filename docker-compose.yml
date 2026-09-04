@@ -64,9 +64,9 @@ services:
       - postgres
     restart: unless-stopped
 
-  resume-optimization-worker:
+  resume-agent-worker:
     build: .
-    command: node src/workers/resumeOptimizationWorker.js
+    command: node src/workers/resumeAgentWorker.js
     env_file:
       - ${ENV_FILE}
     depends_on:

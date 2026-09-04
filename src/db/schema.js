@@ -1,5 +1,5 @@
 //import { boolean } from "drizzle-orm/gel-core";
-import { relations } from "drizzle-orm";
+import { relations, sql } from "drizzle-orm";
 import {
   pgTable,
   text,
@@ -14,6 +14,7 @@ import {
   pgEnum,
   index,
   jsonb,
+  check,
 } from "drizzle-orm/pg-core";
 
 export const tierEnum = pgEnum("tier", ["free", "pro", "enterprise"]);
@@ -369,6 +370,12 @@ export const jobs = pgTable(
     sourceJobId: varchar("source_job_id", { length: 255 }).notNull(),
     source: varchar("source", { length: 100 }),
     sourceUrl: text("source_url"),
+    sourceType: varchar("source_type", { length: 50 }).default("platform"),
+    atsVendor: varchar("ats_vendor", { length: 100 }),
+    careerPageUrl: text("career_page_url"),
+    applicationUrl: text("application_url"),
+    requirementsJson: jsonb("requirements_json"),
+    screeningQuestionsJson: jsonb("screening_questions_json"),
 
     title: text("title").notNull(),
     roleTitle: text("role_title"),
@@ -689,6 +696,10 @@ export const workspaceStatusEnum = pgEnum("workspace_status", [
 export const versionSourceEnum = pgEnum("version_source", [
   "upload",
   "platform_optimize",
+  "career_optimize",
+  "manual_jd",
+  "agent_chat",
+  "fact_confirmation",
   "manual_edit",
   "ai_patch",
   "rollback",
@@ -865,4 +876,219 @@ export const resumeWorkspaceIntelligence = pgTable(
     createdAt: timestamp("created_at").defaultNow(),
     updatedAt: timestamp("updated_at").defaultNow(),
   }
+);
+
+// ─── Resume Agent v2 ────────────────────────────────────────────────────────
+// The legacy optimization tables remain readable during migration, but all new
+// resume-agent writes use the entities below. They separate source targets,
+// durable runs, user-attested facts, proposed changes, and the audit trail.
+
+export const resumeAgentTargetTypeEnum = pgEnum("resume_agent_target_type", [
+  "platform_market",
+  "career_job",
+  "manual_jd",
+]);
+
+export const resumeAgentTargetStatusEnum = pgEnum("resume_agent_target_status", [
+  "ready",
+  "failed",
+]);
+
+export const resumeAgentRunStatusEnum = pgEnum("resume_agent_run_status", [
+  "pending",
+  "analyzing",
+  "awaiting_confirmation",
+  "applying",
+  "validating",
+  "completed",
+  "no_improvement",
+  "failed",
+  "cancelled",
+]);
+
+export const resumeFactSourceEnum = pgEnum("resume_fact_source", [
+  "resume",
+  "user_attested",
+  "imported",
+]);
+
+export const resumeFactStatusEnum = pgEnum("resume_fact_status", [
+  "verified",
+  "rejected",
+  "superseded",
+]);
+
+export const resumeProposalStatusEnum = pgEnum("resume_proposal_status", [
+  "proposed",
+  "approved",
+  "rejected",
+  "applied",
+  "blocked",
+]);
+
+export const resumeAgentMessageRoleEnum = pgEnum("resume_agent_message_role", [
+  "user",
+  "assistant",
+  "tool",
+  "system",
+]);
+
+export const resumeCreditReservationStatusEnum = pgEnum("resume_credit_reservation_status", [
+  "reserved",
+  "consumed",
+  "released",
+]);
+
+export const resumeAgentTargets = pgTable(
+  "resume_agent_targets",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
+    workspaceId: uuid("workspace_id").references(() => resumeWorkspaces.id, { onDelete: "cascade" }).notNull(),
+    type: resumeAgentTargetTypeEnum("type").notNull(),
+    status: resumeAgentTargetStatusEnum("status").notNull().default("ready"),
+    platform: varchar("platform", { length: 100 }),
+    jobSourceId: varchar("job_source_id", { length: 255 }),
+    companyName: text("company_name"),
+    jobTitle: text("job_title").notNull(),
+    jobUrl: text("job_url"),
+    applicationUrl: text("application_url"),
+    atsVendor: varchar("ats_vendor", { length: 100 }),
+    sourceSnapshotJson: jsonb("source_snapshot_json").notNull(),
+    requirementsJson: jsonb("requirements_json").notNull(),
+    fingerprint: varchar("fingerprint", { length: 64 }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    userIdx: index("resume_agent_targets_user_idx").on(table.userId, table.createdAt),
+    workspaceIdx: index("resume_agent_targets_workspace_idx").on(table.workspaceId),
+    fingerprintIdx: index("resume_agent_targets_fingerprint_idx").on(table.userId, table.fingerprint),
+  })
+);
+
+export const resumeAgentRuns = pgTable(
+  "resume_agent_runs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
+    workspaceId: uuid("workspace_id").references(() => resumeWorkspaces.id, { onDelete: "cascade" }).notNull(),
+    targetId: uuid("target_id").references(() => resumeAgentTargets.id, { onDelete: "cascade" }).notNull(),
+    baseVersionId: uuid("base_version_id").references(() => resumeVersions.id, { onDelete: "restrict" }).notNull(),
+    outputVersionId: uuid("output_version_id").references(() => resumeVersions.id, { onDelete: "set null" }),
+    status: resumeAgentRunStatusEnum("status").notNull().default("pending"),
+    mode: varchar("mode", { length: 30 }).notNull().default("optimize"),
+    idempotencyKey: varchar("idempotency_key", { length: 128 }).notNull(),
+    scoreBeforeJson: jsonb("score_before_json"),
+    scoreAfterJson: jsonb("score_after_json"),
+    resultJson: jsonb("result_json"),
+    errorCode: varchar("error_code", { length: 80 }),
+    errorMessage: text("error_message"),
+    startedAt: timestamp("started_at", { withTimezone: true }),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    userIdx: index("resume_agent_runs_user_idx").on(table.userId, table.createdAt),
+    targetIdx: index("resume_agent_runs_target_idx").on(table.targetId),
+    idempotencyUnique: uniqueIndex("resume_agent_runs_user_idempotency_idx").on(table.userId, table.idempotencyKey),
+  })
+);
+
+export const resumeFactAssertions = pgTable(
+  "resume_fact_assertions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
+    workspaceId: uuid("workspace_id").references(() => resumeWorkspaces.id, { onDelete: "cascade" }).notNull(),
+    runId: uuid("run_id").references(() => resumeAgentRuns.id, { onDelete: "set null" }),
+    factType: varchar("fact_type", { length: 80 }).notNull(),
+    factKey: text("fact_key").notNull(),
+    valueJson: jsonb("value_json").notNull(),
+    evidenceJson: jsonb("evidence_json").notNull(),
+    source: resumeFactSourceEnum("source").notNull(),
+    status: resumeFactStatusEnum("status").notNull().default("verified"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    userIdx: index("resume_fact_assertions_user_idx").on(table.userId, table.factType),
+    workspaceIdx: index("resume_fact_assertions_workspace_idx").on(table.workspaceId),
+  })
+);
+
+export const resumeChangeProposals = pgTable(
+  "resume_change_proposals",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    runId: uuid("run_id").references(() => resumeAgentRuns.id, { onDelete: "cascade" }).notNull(),
+    userId: uuid("user_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
+    proposalType: varchar("proposal_type", { length: 80 }).notNull(),
+    targetPath: text("target_path").notNull(),
+    beforeJson: jsonb("before_json"),
+    afterJson: jsonb("after_json").notNull(),
+    rationale: text("rationale").notNull(),
+    evidenceJson: jsonb("evidence_json").notNull(),
+    requiresConfirmation: boolean("requires_confirmation").notNull().default(false),
+    status: resumeProposalStatusEnum("status").notNull().default("proposed"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    decidedAt: timestamp("decided_at", { withTimezone: true }),
+    appliedAt: timestamp("applied_at", { withTimezone: true }),
+  },
+  (table) => ({
+    runIdx: index("resume_change_proposals_run_idx").on(table.runId, table.status),
+    userIdx: index("resume_change_proposals_user_idx").on(table.userId),
+  })
+);
+
+export const resumeAgentMessages = pgTable(
+  "resume_agent_messages",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    runId: uuid("run_id").references(() => resumeAgentRuns.id, { onDelete: "cascade" }).notNull(),
+    userId: uuid("user_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
+    role: resumeAgentMessageRoleEnum("role").notNull(),
+    content: text("content").notNull(),
+    intent: varchar("intent", { length: 80 }),
+    clientMessageId: varchar("client_message_id", { length: 128 }),
+    metadataJson: jsonb("metadata_json"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    runTimeIdx: index("resume_agent_messages_run_time_idx").on(table.runId, table.createdAt),
+    clientMessageUnique: uniqueIndex("resume_agent_messages_client_id_idx").on(table.runId, table.clientMessageId),
+  })
+);
+
+export const resumeAgentEvents = pgTable(
+  "resume_agent_events",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    runId: uuid("run_id").references(() => resumeAgentRuns.id, { onDelete: "cascade" }).notNull(),
+    userId: uuid("user_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
+    eventType: varchar("event_type", { length: 100 }).notNull(),
+    payloadJson: jsonb("payload_json"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    runTimeIdx: index("resume_agent_events_run_time_idx").on(table.runId, table.createdAt),
+  })
+);
+
+export const resumeCreditReservations = pgTable(
+  "resume_credit_reservations",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    runId: uuid("run_id").references(() => resumeAgentRuns.id, { onDelete: "cascade" }).notNull().unique(),
+    userId: uuid("user_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
+    amount: integer("amount").notNull(),
+    status: resumeCreditReservationStatusEnum("status").notNull().default("reserved"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    settledAt: timestamp("settled_at", { withTimezone: true }),
+  },
+  (table) => ({
+    userStatusIdx: index("resume_credit_reservations_user_status_idx").on(table.userId, table.status),
+    nonNegativeAmount: check("resume_credit_reservations_amount_check", sql`${table.amount} >= 0`),
+  })
 );
