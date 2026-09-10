@@ -2,6 +2,7 @@
 import { relations } from "drizzle-orm";
 import {
   pgTable,
+  jsonb,
   text,
   boolean,
   bigint,
@@ -42,6 +43,13 @@ export const users = pgTable("users", {
   resetToken: varchar("reset_token", { length: 255 }),
   resetTokenExpiry: bigint("reset_token_expiry", { mode: "number" }),
   lastEmailSentAt: timestamp("last_email_sent_at"),
+});
+
+// Optional job-search choices are independent of resume/profile facts.
+export const userJobPreferences = pgTable("user_job_preferences", {
+  userId: uuid("user_id").primaryKey().references(() => users.id, { onDelete: "cascade" }),
+  preferences: jsonb("preferences").notNull().default({}),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
 export const payments = pgTable("payments", {
