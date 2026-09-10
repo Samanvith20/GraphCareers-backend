@@ -37,7 +37,7 @@ async function runMatcherWorker() {
   try {
     while (true) {
       const batchUsers = await db.query.users.findMany({
-        columns: { id: true },
+        columns: { id: true, skills: true },
         limit: BATCH_SIZE,
         ...(lastId && { where: (u, { gt }) => gt(u.id, lastId) }),
         orderBy: (u, { asc }) => [asc(u.id)],
@@ -47,6 +47,8 @@ async function runMatcherWorker() {
 
       await Promise.all(
         batchUsers.map(async (user) => {
+          // General browsing is on-demand, not a personalized email recommendation.
+          if (!user.skills?.some(skill => typeof skill === "string" && skill.trim())) return;
           try {
             await getMatchedJobsService({ userId: user.id });
           } catch (err) {

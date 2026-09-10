@@ -7,8 +7,8 @@ import { getMatchedJobsService } from "../services/jobs.service.js";
 export async function getMatchedJobs(req, res,next) {
   try {
     const userId = req.userId; // 👈 from auth middleware
-    const page = parseInt(req.query.page, 10) || 1;
-    const limit = parseInt(req.query.limit, 10) || 20;
+    const page = Math.min(1000, Math.max(1, parseInt(req.query.page, 10) || 1));
+    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit, 10) || 20));
     let days = parseInt(req.query.days, 10);
     const allowedDays = [1, 2, 3];
     if (!allowedDays.includes(days)) days = 3;

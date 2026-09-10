@@ -7,6 +7,9 @@ import { db } from "../db/index.js";
 import { jobMatches, users, jobs as jobsTable } from "../db/schema.js";
 import { AppError } from "../lib/AppError.js";
 import { getUserAccessFromUser } from "./userAccess.service.js";
+import { getJobPreferences } from "./jobPreferences.service.js";
+import { getFeedContext } from "../schemas/jobPreferences.schema.js";
+import { preferenceWhere, browseQueries } from "./jobFeedQuery.js";
 
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -24,7 +27,7 @@ function expandSkills(rawSkills) {
     const normalized = normalizeSkill(skill);
     if (!normalized) continue;
     expanded.add(normalized);
-    const aliases = SKILL_ALIASES[normalized];
+    const aliases = Object.values(SKILL_ALIASES).find(group => group.includes(normalized));
     if (aliases) aliases.forEach((a) => expanded.add(a));
   }
   return Array.from(expanded);
@@ -105,7 +108,8 @@ export async function getMatchedJobsService({
     },
   });
   if (!user) throw new AppError("User not found", 404);
-  if (!user.skills?.length) throw new AppError("User has no skills", 400);
+  const preferences = await getJobPreferences(userId);
+  const feed = getFeedContext(user, preferences);
 
   const access = getUserAccessFromUser(user);
 
@@ -122,7 +126,7 @@ export async function getMatchedJobsService({
   else if (expYears <= 8) { minExp = Math.floor(expYears) - 1; maxExp = Math.ceil(expYears) + 2; }
   else { minExp = Math.floor(expYears) - 2; maxExp = Math.ceil(expYears) + 2; }
 
-  const skillVariants = expandSkills(user.skills);
+  const skillVariants = expandSkills(user.skills || []);
   const skip = (page - 1) * limit;
 
   // 1. Calculate thresholds in JS for index utilization
@@ -137,11 +141,16 @@ export async function getMatchedJobsService({
   const workModeFilter = (!workMode || workMode === "All") ? null : workMode;
   const jobTypeFilter = (!jobType || jobType === "All") ? null : jobType;
 
-  const session = getNeo4jSession();
+  const session = getNeo4jSession(neo4j.session.READ);
   let paginatedJobs = [];
   let filters = { total: 0, avgMatch: 0, newJobs: 0, perfectMatches: 0 };
 
   const cypherParams = {
+    experienceKnown: feed.experienceKnown,
+    desiredRoles: preferences.desiredRoles || [],
+    locations: preferences.locations || [],
+    workModes: (preferences.workModes || []).flatMap(mode => mode === "onsite" ? ["onsite", "office", "workfromoffice"] : mode === "remote" ? ["remote", "workfromhome"] : [mode]),
+    employmentTypes: (preferences.employmentTypes || []).map(type => type.replaceAll("-", "")),
     skillVariants,
     minExp: neo4j.int(minExp),
     maxExp: neo4j.int(maxExp),
@@ -153,7 +162,7 @@ export async function getMatchedJobsService({
     limit: neo4j.int(limit)
   };
 
-  let optionalWhere = "";
+  let optionalWhere = preferenceWhere;
   if (workModeFilter) optionalWhere += " AND j.work_mode = $workModeFilter";
   if (jobTypeFilter) optionalWhere += " AND j.job_type = $jobTypeFilter";
 
@@ -165,7 +174,7 @@ export async function getMatchedJobsService({
       AND j.expires_at > datetime()
       ${optionalWhere}
       AND (
-        (j.min_experience IS NULL AND j.max_experience IS NULL)
+        $experienceKnown = false OR (j.min_experience IS NULL AND j.max_experience IS NULL)
         OR (
           (j.min_experience IS NULL OR j.min_experience <= ($maxExp + 1))
           AND
@@ -174,7 +183,7 @@ export async function getMatchedJobsService({
       )
     WITH j, count(DISTINCT s.canonical) AS matchedCount
     MATCH (j)-[:REQUIRES]->(allS:Skill)
-    WITH j, matchedCount, count(DISTINCT allS) AS totalRequired
+    WITH j, matchedCount, count(DISTINCT allS.canonical) AS totalRequired
     WHERE matchedCount * 100.0 / totalRequired >= 20
     WITH j, round(100.0 * matchedCount / totalRequired, 1) AS matchPercent
     RETURN 
@@ -192,7 +201,7 @@ export async function getMatchedJobsService({
       AND j.expires_at > datetime()
       ${optionalWhere}
       AND (
-        (j.min_experience IS NULL AND j.max_experience IS NULL)
+        $experienceKnown = false OR (j.min_experience IS NULL AND j.max_experience IS NULL)
         OR (
           (j.min_experience IS NULL OR j.min_experience <= ($maxExp + 1))
           AND
@@ -203,16 +212,16 @@ export async function getMatchedJobsService({
     MATCH (j)-[:REQUIRES]->(allS:Skill)
     WITH j, matchedSkills, collect(DISTINCT allS.canonical) AS jobSkills
     WITH j, matchedSkills, jobSkills,
-         [sk IN jobSkills WHERE NOT sk IN $skillVariants][0..5] AS missingSkills,
+         [sk IN jobSkills WHERE NOT sk IN $skillVariants] AS missingSkills,
          size(jobSkills) AS totalRequired,
          size(matchedSkills) AS matchedCount
     WHERE matchedCount * 100.0 / totalRequired >= 20
     WITH j, matchedSkills, missingSkills, matchedCount, totalRequired,
          round(100.0 * matchedCount / totalRequired, 1) AS matchPercent,
-         coalesce(j.hours_old, 0) AS hoursOld
+         duration.inSeconds(j.posted_at, datetime()).seconds / 3600.0 AS hoursOld
     WITH j, matchedSkills, missingSkills, matchedCount, totalRequired, matchPercent,
-         (matchPercent * 2.0) + (matchedCount * 6) - (size(missingSkills) * 2) - (hoursOld / 24.0 * 1.5) - abs(coalesce(j.min_experience, 0) - $minExp) * 2 AS qualityScore
-    ORDER BY qualityScore DESC, matchPercent DESC
+         (matchPercent * 2.0) + (matchedCount * 6) - (size(missingSkills) * 2) - (hoursOld / 24.0 * 1.5) - CASE WHEN $experienceKnown THEN abs(coalesce(j.min_experience, 0) - $minExp) * 2 ELSE 0 END AS qualityScore
+    ORDER BY qualityScore DESC, matchPercent DESC, j.job_id ASC
     SKIP $skip
     LIMIT $limit
     OPTIONAL MATCH (j)-[:POSTED_BY]->(c:Company)
@@ -230,8 +239,9 @@ export async function getMatchedJobsService({
   `;
 
   try {
-    const statsRes = await session.run(statsQuery, cypherParams);
-    const jobsRes = await session.run(jobsQuery, cypherParams);
+    const browse = browseQueries(optionalWhere);
+    const statsRes = await session.run(feed.hasSkills ? statsQuery : browse.stats, cypherParams, { timeout: 15000 });
+    const jobsRes = await session.run(feed.hasSkills ? jobsQuery : browse.jobs, cypherParams, { timeout: 15000 });
 
     if (statsRes.records.length > 0) {
       const row = statsRes.records[0];
@@ -250,7 +260,8 @@ export async function getMatchedJobsService({
         id:            record.get("jobId"),
         title:         record.get("title"),
         company:       record.get("company")  || "Not specified",
-        location:      record.get("location") || "Remote",
+        location:      record.get("location") || "Location not provided",
+        requiredSkills: feed.hasSkills ? [] : record.get("requiredSkills"),
         url:           record.get("url"),
         matchPercent:  toNumber(record.get("matchPercent")),
         matchedSkills: record.get("matchedSkills"),
@@ -272,10 +283,11 @@ export async function getMatchedJobsService({
       };
     });
   } finally {
-    session.close().catch(() => {});
+    await session.close();
   }
 
-  if (page === 1) {
+  // Exploration results must never overwrite personalized/email recommendations.
+  if (page === 1 && feed.hasSkills) {
     const topJobs = diversifyTopK(paginatedJobs, 15);
     setImmediate(async () => {
       try {
@@ -333,6 +345,8 @@ export async function getMatchedJobsService({
   });
 
   return {
+    feed,
+    preferences,
     jobs: finalJobs,
     isPro: access.plan === "pro",
     filters: {
